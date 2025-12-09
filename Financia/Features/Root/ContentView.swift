@@ -1,5 +1,6 @@
 import SwiftUI
 import AuthenticationServices
+import Combine
 
 struct ContentView: View {
     @State private var isAuthenticated = false
@@ -8,6 +9,8 @@ struct ContentView: View {
     @State private var financeEntries: [FinanceEntry] = FinanceEntry.sampleHistory
     @State private var usdToCupRate: Double = 24.37
     @State private var entrySheetKind: FinanceEntryFlow?
+
+    private let api = ElToqueAPI(token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MzE0NzIzNywianRpIjoiMGEwNmMzZTktOTMyZC00NTEyLWJiNTEtYzZiMzM5MzU2NzZhIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjY5MGY3NGQxZTkyYmU3N2VhMzhkNDM5NiIsIm5iZiI6MTc2MzE0NzIzNywiZXhwIjoxNzk0NjgzMjM3fQ.qTb0NhE9RxbBx6XsVjLxiNja3W7WwvnJiTYKXZ2E75o")
 
     var body: some View {
         ZStack {
@@ -36,6 +39,10 @@ struct ContentView: View {
                 handleNewEntry(result)
             }
             .presentationDragIndicator(.visible)
+        }
+        .onAppear(perform: fetchRate)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            fetchRate()
         }
     }
 
@@ -120,6 +127,21 @@ struct ContentView: View {
             isAuthenticated = true
         }
         errorMessage = nil
+    }
+
+    private func fetchRate() {
+        api.fetchTasas { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let tasasDict):
+                    if let rate = tasasDict["USD"] {
+                        self.usdToCupRate = rate
+                    }
+                case .failure(let error):
+                    print("Error fetching rates: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 }
 

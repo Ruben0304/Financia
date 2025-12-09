@@ -1,495 +1,370 @@
 import SwiftUI
 
-enum FinanceEntryFlow: String, CaseIterable, Identifiable {
+// These types are defined here to make this View self-contained and
+// to ensure it works with the original ContentView without modification.
+enum FinanceEntryFlow: Identifiable {
     case income
     case expense
-
-    var id: String { rawValue }
-
-    var title: String {
+    
+    var id: String {
         switch self {
-        case .income: return "Ingreso"
-        case .expense: return "Gasto"
-        }
-    }
-
-    var accentColor: Color {
-        switch self {
-        case .income: return Color(red: 0.17, green: 0.60, blue: 0.47)
-        case .expense: return Color(red: 0.83, green: 0.35, blue: 0.33)
-        }
-    }
-
-    var caption: String {
-        switch self {
-        case .income: return "Dinero que entra"
-        case .expense: return "Dinero que sale"
+        case .income: return "income"
+        case .expense: return "expense"
         }
     }
 }
 
 struct FinanceEntrySheetResult {
-    let kind: FinanceEntryFlow
     let amount: Double
-    let category: FinanceCategoryOption
-    let notes: String
+    let kind: FinanceEntryFlow
+    let category: String // This will now hold "Category - Description"
+}
+
+// A simple category struct for the UI
+private struct EntryCategory: Identifiable, Hashable {
+    let id = UUID()
+    var name: String
+    var icon: String
+    let color: Color
 }
 
 struct AddEntrySheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let onSubmit: (FinanceEntrySheetResult) -> Void
-
-    @State private var selectedKind: FinanceEntryFlow
-    @State private var selectedCategory: FinanceCategoryOption
-    @State private var amountText: String
-    @State private var notes: String = ""
-    @State private var customCategory: CustomCategoryDraft
-    @FocusState private var focusedField: Field?
-
-    init(
-        kind: FinanceEntryFlow,
-        presetAmount: Double? = nil,
-        customCategory: CustomCategoryDraft = CustomCategoryDraft(),
-        onSubmit: @escaping (FinanceEntrySheetResult) -> Void = { _ in }
-    ) {
-        _selectedKind = State(initialValue: kind)
-        let defaults = FinanceCategoryOption.defaults(for: kind)
-        _selectedCategory = State(initialValue: defaults.first ?? CustomCategoryDraft().makeOption(for: kind))
-        if let amount = presetAmount {
-            _amountText = State(initialValue: amount.formatted(.number.precision(.fractionLength(2))))
-        } else {
-            _amountText = State(initialValue: "")
-        }
-        _customCategory = State(initialValue: customCategory)
-        self.onSubmit = onSubmit
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Capsule()
-                    .fill(Color.secondary.opacity(0.3))
-                    .frame(width: 44, height: 5)
-                    .padding(.top, 8)
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        kindPicker
-                        amountField
-                        categoryGrid
-
-                        if selectedCategory.isCustom {
-                            CustomCategoryEditor(draft: $customCategory, selectedKind: selectedKind)
-                                .transition(.opacity)
-                        }
-
-                        notesField
-                    }
-                    .padding(.bottom, 8)
-                }
-
-                actionButton
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-            .background(Color(.systemBackground))
-            .navigationTitle("Nuevo movimiento")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cerrar") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.fraction(0.86), .large])
-        .presentationCornerRadius(32)
-        .onChange(of: selectedKind) { newKind in
-            let defaults = FinanceCategoryOption.defaults(for: newKind)
-            if selectedCategory.kind != newKind || !defaults.contains(selectedCategory) {
-                selectedCategory = defaults.first ?? customCategory.makeOption(for: newKind)
-            }
-        }
-        .onChange(of: customCategory) { newValue in
-            if selectedCategory.isCustom {
-                selectedCategory = newValue.makeOption(for: selectedKind)
-            }
-        }
-    }
-
-    private var kindPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Tipo de movimiento")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AuroraColors.secondaryText)
-
-            Picker("Tipo", selection: $selectedKind) {
-                ForEach(FinanceEntryFlow.allCases) { kind in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(kind.title).font(.headline)
-                        Text(kind.caption).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .tag(kind)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(Color(.secondarySystemBackground)))
-    }
-
-    private var amountField: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Monto")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AuroraColors.secondaryText)
-
-            TextField("0.00", text: $amountText)
-                .keyboardType(.decimalPad)
-                .focused($focusedField, equals: .amount)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(AuroraColors.primaryText)
-                .padding(.vertical, 8)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(Color(.secondarySystemBackground)))
-    }
-
-    private var categoryGrid: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Categoría")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AuroraColors.secondaryText)
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12, alignment: .top)], spacing: 12) {
-                ForEach(categoryOptions) { option in
-                    CategoryCard(option: option, isSelected: option.id == selectedCategory.id)
-                        .onTapGesture {
-                            selectedCategory = option
-                            focusedField = nil
-                        }
-                }
-            }
-        }
-    }
-
-    private var notesField: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Notas (opcional)")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AuroraColors.secondaryText)
-
-            TextField("Ej. \"Pagado en efectivo\"", text: $notes, axis: .vertical)
-                .textInputAutocapitalization(.sentences)
-                .lineLimit(1...3)
-        }
-        .padding(20)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(Color(.secondarySystemBackground)))
-    }
-
-    private var actionButton: some View {
-        Button {
-            guard let numericAmount = Double(amountText.replacingOccurrences(of: ",", with: ".")) else { return }
-            let payload = FinanceEntrySheetResult(
-                kind: selectedKind,
-                amount: numericAmount,
-                category: selectedCategory,
-                notes: notes
-            )
-            onSubmit(payload)
-            dismiss()
-        } label: {
-            Text("Guardar \(selectedKind.title.lowercased())")
-                .font(.headline)
-                .foregroundStyle(Color.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(selectedKind.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-        .disabled(!isFormValid)
-        .opacity(isFormValid ? 1 : 0.6)
-    }
-
-    private var categoryOptions: [FinanceCategoryOption] {
-        var defaults = FinanceCategoryOption.defaults(for: selectedKind)
-        defaults.append(customCategory.makeOption(for: selectedKind))
-        return defaults
-    }
-
-    private var isFormValid: Bool {
-        guard !amountText.isEmpty, Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0 > 0 else {
-            return false
-        }
-        return true
-    }
-
-    private enum Field {
-        case amount
-    }
-}
-
-struct FinanceCategoryOption: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let icon: CategoryIcon
-    let color: Color
+    
+    // MARK: - Properties
+    
+    @Environment(\.presentationMode) var presentationMode
+    
     let kind: FinanceEntryFlow
-
-    var isCustom: Bool {
-        id == FinanceCategoryOption.customIdentifier
+    let onCompletion: (FinanceEntrySheetResult) -> Void
+    
+    // UI State
+    @State private var amount: Double = 0
+    @State private var selectedCategory: EntryCategory
+    @State private var transactionDate: Date = .now
+    @State private var description: String = "" // New state for description
+    @State private var selectedEntryType: FinanceEntryFlow
+    
+    // Category State
+    @State private var incomeCategories: [EntryCategory]
+    @State private var expenseCategories: [EntryCategory]
+    @State private var isAddingCategory = false
+    
+    // Initializer
+    init(kind: FinanceEntryFlow, onCompletion: @escaping (FinanceEntrySheetResult) -> Void) {
+        self.kind = kind
+        self.onCompletion = onCompletion
+        
+        // Set initial state based on the 'kind' passed from ContentView
+        _selectedEntryType = State(initialValue: kind)
+        
+        let initialIncome: [EntryCategory] = [
+            .init(name: "Salario", icon: "dollarsign.circle.fill", color: .green),
+            .init(name: "Regalo", icon: "gift.fill", color: .pink),
+            .init(name: "Inversiones", icon: "chart.bar.fill", color: .purple),
+            .init(name: "Freelance", icon: "laptopcomputer", color: .orange)
+        ]
+        
+        let initialExpense: [EntryCategory] = [
+            .init(name: "Comida", icon: "fork.knife.circle.fill", color: .yellow),
+            .init(name: "Transporte", icon: "car.fill", color: .blue),
+            .init(name: "Hogar", icon: "house.fill", color: .cyan),
+            .init(name: "Ocio", icon: "gamecontroller.fill", color: .red),
+            .init(name: "Ropa", icon: "bag.fill", color: .indigo),
+            .init(name: "Salud", icon: "heart.fill", color: .pink),
+            .init(name: "Educación", icon: "book.fill", color: .teal),
+            .init(name: "Otros", icon: "ellipsis.circle.fill", color: .gray)
+        ]
+        
+        _incomeCategories = State(initialValue: initialIncome)
+        _expenseCategories = State(initialValue: initialExpense)
+        
+        _selectedCategory = State(initialValue: (kind == .income ? initialIncome : initialExpense).first!)
     }
-
-    static let customIdentifier = "custom-category"
-
-    static func defaults(for kind: FinanceEntryFlow) -> [FinanceCategoryOption] {
-        switch kind {
-        case .income:
-            return [
-                FinanceCategoryOption(
-                    id: "salary",
-                    title: "Salario",
-                    icon: .system("dollarsign.arrow.circlepath"),
-                    color: Color(red: 0.75, green: 0.89, blue: 0.78),
-                    kind: kind
-                ),
-                FinanceCategoryOption(
-                    id: "freelance",
-                    title: "Freelance",
-                    icon: .system("laptopcomputer"),
-                    color: Color(red: 0.74, green: 0.85, blue: 0.98),
-                    kind: kind
-                ),
-                FinanceCategoryOption(
-                    id: "investments",
-                    title: "Inversiones",
-                    icon: .system("chart.line.uptrend.xyaxis"),
-                    color: Color(red: 0.90, green: 0.83, blue: 0.98),
-                    kind: kind
-                )
-            ]
-
-        case .expense:
-            return [
-                FinanceCategoryOption(
-                    id: "groceries",
-                    title: "Mercado",
-                    icon: .system("cart.fill"),
-                    color: Color(red: 0.99, green: 0.88, blue: 0.79),
-                    kind: kind
-                ),
-                FinanceCategoryOption(
-                    id: "transport",
-                    title: "Transporte",
-                    icon: .system("car.fill"),
-                    color: Color(red: 0.91, green: 0.95, blue: 0.99),
-                    kind: kind
-                ),
-                FinanceCategoryOption(
-                    id: "leisure",
-                    title: "Ocio",
-                    icon: .system("popcorn.fill"),
-                    color: Color(red: 0.99, green: 0.91, blue: 0.94),
-                    kind: kind
-                )
-            ]
-        }
-    }
-}
-
-enum CategoryIcon: Equatable {
-    case system(String)
-    case emoji(String)
-}
-
-private struct CategoryCard: View {
-    let option: FinanceCategoryOption
-    let isSelected: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CategoryIconView(icon: option.icon, background: option.color)
-            Text(option.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AuroraColors.primaryText)
-                .lineLimit(2)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(isSelected ? option.color.opacity(0.9) : Color.clear, lineWidth: 2)
-        )
-    }
-}
-
-private struct CategoryIconView: View {
-    let icon: CategoryIcon
-    let background: Color
+    
+    // MARK: - Body
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(background.opacity(0.6))
-                .frame(width: 52, height: 52)
+            AuroraBackground().ignoresSafeArea()
 
-            switch icon {
-            case .system(let name):
-                Image(systemName: name)
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(AuroraColors.primaryText)
-            case .emoji(let emoji):
-                Text(emoji)
-                    .font(.system(size: 26))
+            VStack(spacing: 0) {
+                header
+                amountDisplay
+                detailsSheet
             }
         }
-    }
-}
-
-struct CustomCategoryDraft: Equatable {
-    enum IconStyle: String, CaseIterable, Identifiable {
-        case system
-        case emoji
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .system: return "Icono iOS"
-            case .emoji: return "Emoji"
+        .onChange(of: selectedEntryType) { newType in
+            if newType == .income {
+                selectedCategory = incomeCategories.first!
+            } else {
+                selectedCategory = expenseCategories.first!
             }
         }
-    }
-
-    var name: String = "Personalizada"
-    var iconStyle: IconStyle = .system
-    var symbolName: String = "sparkles"
-    var emoji: String = "✨"
-
-    func makeOption(for kind: FinanceEntryFlow) -> FinanceCategoryOption {
-        FinanceCategoryOption(
-            id: FinanceCategoryOption.customIdentifier,
-            title: name.isEmpty ? "Personalizada" : name,
-            icon: iconStyle == .system ? .system(symbolName) : .emoji(emoji),
-            color: Color(red: 0.94, green: 0.88, blue: 0.99),
-            kind: kind
-        )
-    }
-}
-
-private struct CustomCategoryEditor: View {
-    @Binding var draft: CustomCategoryDraft
-    let selectedKind: FinanceEntryFlow
-
-    private let symbolCandidates = [
-        "wand.and.stars",
-        "house.fill",
-        "tshirt.fill",
-        "takeoutbag.and.cup.and.straw.fill",
-        "gamecontroller.fill",
-        "airplane",
-        "stethoscope",
-        "gift.fill"
-    ]
-
-    private let emojiCandidates = ["🍰", "🏖️", "🎉", "🥡", "📚", "🚲", "🧾", "🛠️", "🧘🏻‍♂️"]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Categoria personalizada")
-                .font(.headline)
-                .foregroundStyle(AuroraColors.primaryText)
-
-            TextField("Nombre de la categoría", text: $draft.name)
-                .textInputAutocapitalization(.words)
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: 18).fill(Color(.tertiarySystemBackground)))
-
-            Picker("Estilo de icono", selection: $draft.iconStyle) {
-                ForEach(CustomCategoryDraft.IconStyle.allCases) { style in
-                    Text(style.title).tag(style)
+        .sheet(isPresented: $isAddingCategory) {
+            AddCategoryView { newCategory in
+                if selectedEntryType == .income {
+                    incomeCategories.append(newCategory)
+                } else {
+                    expenseCategories.append(newCategory)
                 }
+                selectedCategory = newCategory
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var header: some View {
+        HStack {
+            Spacer()
+            Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(Color.white.opacity(0.4))
+            }
+        }
+        .padding([.top, .trailing])
+    }
+    
+    private var amountDisplay: some View {
+        VStack {
+            HStack(alignment: .center, spacing: 4) {
+                Text(selectedEntryType == .income ? "+" : "-")
+                    .font(.system(size: 45, weight: .light, design: .rounded))
+                Text("$")
+                    .font(.system(size: 45, weight: .light, design: .rounded))
+                TextField("0.00", value: $amount, format: .number.precision(.fractionLength(2)))
+                    .font(.system(size: 70, weight: .bold, design: .rounded))
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center)
+                    .frame(minWidth: 150)
+            }
+            .foregroundStyle(AuroraColors.primaryText)
+            .padding(.horizontal)
+        }
+        .padding(.vertical, 30)
+    }
+
+    private var detailsSheet: some View {
+        VStack(spacing: 16) {
+            Picker("Tipo de transacción", selection: $selectedEntryType) {
+                Text("Gasto").tag(FinanceEntryFlow.expense)
+                Text("Ingreso").tag(FinanceEntryFlow.income)
             }
             .pickerStyle(.segmented)
+            
+            categoryGrid
+            
+            // New Description and Date Section
+            VStack(spacing: 10) {
+                TextField("Descripción (ej. Almuerzo con amigos)", text: $description)
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
 
-            if draft.iconStyle == .system {
-                iconGrid
-            } else {
-                emojiSelector
+                DatePicker("Fecha", selection: $transactionDate, displayedComponents: .date)
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
             }
 
-            HStack {
-                Text("Preview")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                CategoryCard(option: draft.makeOption(for: selectedKind), isSelected: true)
-                    .frame(maxWidth: 160)
-            }
+            saveButton
+            
+            Spacer()
         }
-        .padding(20)
-        .background(RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .fill(Color(.secondarySystemBackground)))
+        .padding(.horizontal, 24)
+        .padding(.top, 30)
+        .frame(maxWidth: .infinity)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 40, style: .continuous)
+        )
+        .ignoresSafeArea(.all, edges: .bottom)
     }
 
-    private var iconGrid: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(symbolCandidates, id: \.self) { symbol in
-                    Button {
-                        draft.symbolName = symbol
-                    } label: {
-                        CategoryIconView(
-                            icon: .system(symbol),
-                            background: symbol == draft.symbolName ? selectedKind.accentColor.opacity(0.4) : Color(.tertiarySystemBackground)
-                        )
+    private var categoryGrid: some View {
+        let categories = selectedEntryType == .income ? incomeCategories : expenseCategories
+        
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 15) {
+                // Add new category button
+                Button(action: { isAddingCategory = true }) {
+                    VStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.gray.opacity(0.1))
+                            .frame(width: 60, height: 60)
+                            .overlay(Image(systemName: "plus").font(.title).foregroundStyle(.secondary))
+                        Text("Añadir")
+                            .font(.caption)
+                            .foregroundStyle(AuroraColors.primaryText)
                     }
-                    .buttonStyle(.plain)
+                    .padding(6)
                 }
-            }
-            .padding(.vertical, 6)
-        }
-    }
 
-    private var emojiSelector: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Emoji personalizado", text: $draft.emoji)
-                .textInputAutocapitalization(.never)
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: 18).fill(Color(.tertiarySystemBackground)))
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(emojiCandidates, id: \.self) { emoji in
-                        Button {
-                            draft.emoji = emoji
-                        } label: {
-                            Text(emoji)
-                                .font(.system(size: 28))
-                                .frame(width: 52, height: 52)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(emoji == draft.emoji ? selectedKind.accentColor.opacity(0.3) : Color(.tertiarySystemBackground))
+                ForEach(categories) { category in
+                    Button(action: { selectedCategory = category }) {
+                        VStack(spacing: 8) {
+                            Circle()
+                                .fill(category.color.opacity(0.2))
+                                .frame(width: 60, height: 60)
+                                .overlay(
+                                    ZStack {
+                                        Text(category.icon.isEmoji ? category.icon : "")
+                                            .font(.title)
+                                        Image(systemName: category.icon.isEmoji ? "" : category.icon)
+                                            .font(.title)
+                                            .foregroundStyle(category.color)
+                                    }
                                 )
+                            Text(category.name)
+                                .font(.caption)
+                                .foregroundStyle(AuroraColors.primaryText)
                         }
-                        .buttonStyle(.plain)
+                        .padding(6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.white.opacity(selectedCategory == category ? 0.7 : 0.0))
+                        )
+                        .scaleEffect(selectedCategory == category ? 1.1 : 1.0)
+                        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: selectedCategory)
                     }
                 }
-                .padding(.vertical, 6)
+            }
+            .padding(.horizontal, 4)
+        }
+        .frame(height: 100)
+    }
+    
+    private var saveButton: some View {
+        Button(action: handleSave) {
+            Text("Guardar Transacción")
+                .font(.headline).fontWeight(.bold).foregroundStyle(.white).padding()
+                .frame(maxWidth: .infinity)
+                .background(LinearGradient(colors: [Color(red: 0.78, green: 0.58, blue: 0.98), Color(red: 0.53, green: 0.36, blue: 0.98)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .cornerRadius(20)
+                .shadow(color: .purple.opacity(0.4), radius: 10, y: 5)
+        }
+        .padding(.top)
+        .disabled(amount <= 0)
+        .opacity(amount <= 0 ? 0.6 : 1.0)
+    }
+
+    // MARK: - Functions
+    
+    private func handleSave() {
+        let categoryAndDescription = description.isEmpty ? selectedCategory.name : "\(selectedCategory.name) - \(description)"
+        
+        let result = FinanceEntrySheetResult(
+            amount: amount,
+            kind: selectedEntryType,
+            category: categoryAndDescription
+        )
+        onCompletion(result)
+        presentationMode.wrappedValue.dismiss()
+    }
+}
+
+// MARK: - Add Category View
+
+private struct AddCategoryView: View {
+    @Environment(\.presentationMode) var presentationMode
+    var onSave: (EntryCategory) -> Void
+    
+    @State private var name = ""
+    @State private var icon = "tag.fill"
+    @State private var color = Color.blue
+    @State private var isEmoji = false
+    
+    let iconColumns = [GridItem(.adaptive(minimum: 50))]
+    let sampleIcons = ["cart.fill", "car.fill", "house.fill", "gamecontroller.fill", "bag.fill", "heart.fill", "book.fill", "airplane", "bus.fill", "fuelpump.fill", "gift.fill", "phone.fill", "display", "music.note", "lightbulb.fill"]
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Nombre y Emoji/Icono") {
+                    TextField("Nombre de la Categoría", text: $name)
+                    Toggle("Usar Emoji como Icono", isOn: $isEmoji)
+                    if isEmoji {
+                        TextField("Pega un emoji aquí", text: $icon)
+                            .onChange(of: icon) { newValue in
+                                icon = String(newValue.prefix(1))
+                            }
+                    }
+                }
+
+                if !isEmoji {
+                    Section("Icono") {
+                        LazyVGrid(columns: iconColumns, spacing: 20) {
+                            ForEach(sampleIcons, id: \.self) { sampleIcon in
+                                Image(systemName: sampleIcon)
+                                    .font(.title2)
+                                    .padding()
+                                    .background(icon == sampleIcon ? color.opacity(0.4) : Color.gray.opacity(0.1))
+                                    .clipShape(Circle())
+                                    .onTapGesture { icon = sampleIcon }
+                            }
+                        }
+                    }
+                }
+                
+                Section("Color") {
+                    ColorPicker("Elige un color", selection: $color)
+                }
+            }
+            .navigationTitle("Nueva Categoría")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { presentationMode.wrappedValue.dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        let newCategory = EntryCategory(name: name, icon: icon, color: color)
+                        onSave(newCategory)
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                    .disabled(name.isEmpty || icon.isEmpty)
+                }
             }
         }
     }
 }
 
-#Preview {
-    AddEntrySheet(kind: .expense)
+private extension String {
+    var isEmoji: Bool {
+        contains { $0.isEmoji }
+    }
+}
+
+private extension Character {
+    /// A simple check to see if a character is an emoji.
+    var isEmoji: Bool {
+        for scalar in unicodeScalars {
+            switch scalar.value {
+            case 0x1F600...0x1F64F, // Emoticons
+                 0x1F300...0x1F5FF, // Misc Symbols and Pictographs
+                 0x1F680...0x1F6FF, // Transport & Map
+                 0x2600...0x26FF,   // Misc symbols
+                 0x2700...0x27BF,   // Dingbats
+                 0xFE00...0xFE0F,   // Variation Selectors
+                 0x1F900...0x1F9FF, // Supplemental Symbols and Pictographs
+                 127000...127600, // Various asian characters
+                 65024...65039, // Variation selector
+                 9100...9300, // Misc items
+                 8400...8447: // Combining Diacritical Marks for Symbols
+                return true
+            default:
+                continue
+            }
+        }
+        return false
+    }
+}
+
+struct AddEntrySheet_Previews: PreviewProvider {
+    static var previews: some View {
+        AddEntrySheet(kind: .expense) { result in
+            print("Saved: \(result.amount) as \(result.kind) with category: \(result.category)")
+        }
+    }
 }

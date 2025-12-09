@@ -61,11 +61,13 @@ struct FinanceDashboardView: View {
 
     private func balanceHeader(entries: [FinanceEntry]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(currentBalance, format: .currency(code: "USD"))
+            Text(currentBalance, format: .currency(code: "CUP"))
                 .font(.system(size: 38, weight: .bold, design: .rounded))
                 .foregroundStyle(AuroraColors.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+
+            usdConversionView()
 
             variationSummary(for: entries)
         }
@@ -343,7 +345,7 @@ struct FinanceDashboardView: View {
 
             // Precio y porcentaje
             VStack(alignment: .trailing, spacing: 4) {
-                Text(movement.amount, format: .currency(code: "USD"))
+                Text(movement.amount, format: .currency(code: "CUP"))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(AuroraColors.primaryText)
 
@@ -681,7 +683,7 @@ struct FinanceDashboardView: View {
             return "Sin variación reciente"
         }
         let delta = lastValue - firstValue
-        let formatted = delta.magnitude.formatted(.currency(code: "USD"))
+        let formatted = delta.magnitude.formatted(.currency(code: "CUP"))
         let prefix = delta == 0 ? "" : delta > 0 ? "+" : "-"
         return "\(prefix)\(formatted)"
     }
@@ -698,5 +700,12 @@ struct FinanceDashboardView: View {
         } else {
             return AuroraColors.secondaryText
         }
+    }
+
+    private func usdConversionView() -> some View {
+        let usdBalance = currentBalance / usdToCupRate
+        return Text("≈ \(usdBalance.formatted(.currency(code: "USD")))")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(AuroraColors.secondaryText)
     }
 }
