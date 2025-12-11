@@ -20,14 +20,6 @@ struct FinanceEntrySheetResult {
     let category: String // This will now hold "Category - Description"
 }
 
-// A simple category struct for the UI
-private struct EntryCategory: Identifiable, Hashable {
-    let id = UUID()
-    var name: String
-    var icon: String
-    let color: Color
-}
-
 struct AddEntrySheet: View {
     
     // MARK: - Properties
@@ -39,16 +31,20 @@ struct AddEntrySheet: View {
     
     // UI State
     @State private var amount: Double = 0
-    @State private var selectedCategory: EntryCategory
     @State private var transactionDate: Date = .now
     @State private var description: String = "" // New state for description
     @State private var selectedEntryType: FinanceEntryFlow
     
     // Category State
-    @State private var incomeCategories: [EntryCategory]
-    @State private var expenseCategories: [EntryCategory]
-    @State private var isAddingCategory = false
-    
+    @State private var incomeTransactionCategories: [TransactionCategory]
+    @State private var expenseTransactionCategories: [TransactionCategory]
+    @State private var selectedTransactionCategory: TransactionCategory?
+    @State private var selectedSubcategory: Subcategory?
+    @State private var showingAddSubcategoryAlert = false
+    @State private var newSubcategoryName = ""
+    @State private var categoryToAddTo: TransactionCategory?
+    @State private var isAddingCategory = false // State to show AddCategoryView
+
     // Initializer
     init(kind: FinanceEntryFlow, onCompletion: @escaping (FinanceEntrySheetResult) -> Void) {
         self.kind = kind
@@ -57,35 +53,23 @@ struct AddEntrySheet: View {
         // Set initial state based on the 'kind' passed from ContentView
         _selectedEntryType = State(initialValue: kind)
         
-        let initialIncome: [EntryCategory] = [
-            .init(name: "Salario", icon: "dollarsign.circle.fill", color: .green),
-            .init(name: "Regalo", icon: "gift.fill", color: .pink),
-            .init(name: "Inversiones", icon: "chart.bar.fill", color: .purple),
-            .init(name: "Freelance", icon: "laptopcomputer", color: .orange)
-        ]
+        _incomeTransactionCategories = State(initialValue: CategoriesData.incomeCategories)
+        _expenseTransactionCategories = State(initialValue: CategoriesData.expenseCategories)
         
-        let initialExpense: [EntryCategory] = [
-            .init(name: "Comida", icon: "fork.knife.circle.fill", color: .yellow),
-            .init(name: "Transporte", icon: "car.fill", color: .blue),
-            .init(name: "Hogar", icon: "house.fill", color: .cyan),
-            .init(name: "Ocio", icon: "gamecontroller.fill", color: .red),
-            .init(name: "Ropa", icon: "bag.fill", color: .indigo),
-            .init(name: "Salud", icon: "heart.fill", color: .pink),
-            .init(name: "Educación", icon: "book.fill", color: .teal),
-            .init(name: "Otros", icon: "ellipsis.circle.fill", color: .gray)
-        ]
-        
-        _incomeCategories = State(initialValue: initialIncome)
-        _expenseCategories = State(initialValue: initialExpense)
-        
-        _selectedCategory = State(initialValue: (kind == .income ? initialIncome : initialExpense).first!)
+        if kind == .income {
+            _selectedTransactionCategory = State(initialValue: CategoriesData.incomeCategories.first)
+            _selectedSubcategory = State(initialValue: CategoriesData.incomeCategories.first?.subcategories.first)
+        } else {
+            _selectedTransactionCategory = State(initialValue: CategoriesData.expenseCategories.first)
+            _selectedSubcategory = State(initialValue: CategoriesData.expenseCategories.first?.subcategories.first)
+        }
     }
     
     // MARK: - Body
 
     var body: some View {
         ZStack {
-            AuroraBackground().ignoresSafeArea()
+            Color.clear.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -95,19 +79,34 @@ struct AddEntrySheet: View {
         }
         .onChange(of: selectedEntryType) { newType in
             if newType == .income {
-                selectedCategory = incomeCategories.first!
+                selectedTransactionCategory = incomeTransactionCategories.first
+                selectedSubcategory = incomeTransactionCategories.first?.subcategories.first
             } else {
-                selectedCategory = expenseCategories.first!
+                selectedTransactionCategory = expenseTransactionCategories.first
+                selectedSubcategory = expenseTransactionCategories.first?.subcategories.first
+            }
+        }
+        .alert("Nueva Subcategoría", isPresented: $showingAddSubcategoryAlert) {
+            TextField("Nombre", text: $newSubcategoryName)
+            Button("Guardar") {
+                if let category = categoryToAddTo, !newSubcategoryName.isEmpty {
+                    addSubcategory(to: category, with: newSubcategoryName)
+                    newSubcategoryName = ""
+                }
+            }
+            Button("Cancelar", role: .cancel) {
+                newSubcategoryName = ""
             }
         }
         .sheet(isPresented: $isAddingCategory) {
             AddCategoryView { newCategory in
                 if selectedEntryType == .income {
-                    incomeCategories.append(newCategory)
+                    incomeTransactionCategories.append(newCategory)
                 } else {
-                    expenseCategories.append(newCategory)
+                    expenseTransactionCategories.append(newCategory)
                 }
-                selectedCategory = newCategory
+                selectedTransactionCategory = newCategory
+                selectedSubcategory = newCategory.subcategories.first
             }
         }
     }
@@ -139,7 +138,7 @@ struct AddEntrySheet: View {
                     .multilineTextAlignment(.center)
                     .frame(minWidth: 150)
             }
-            .foregroundStyle(AuroraColors.primaryText)
+            .foregroundStyle(Color.primary)
             .padding(.horizontal)
         }
         .padding(.vertical, 30)
@@ -153,7 +152,16 @@ struct AddEntrySheet: View {
             }
             .pickerStyle(.segmented)
             
-            categoryGrid
+            CategorySelectionView(
+                incomeCategories: $incomeTransactionCategories,
+                expenseCategories: $expenseTransactionCategories,
+                selectedEntryType: $selectedEntryType,
+                selectedTransactionCategory: $selectedTransactionCategory,
+                selectedSubcategory: $selectedSubcategory,
+                showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
+                categoryToAddTo: $categoryToAddTo,
+                isAddingCategory: $isAddingCategory
+            )
             
             // New Description and Date Section
             VStack(spacing: 10) {
@@ -181,59 +189,6 @@ struct AddEntrySheet: View {
         )
         .ignoresSafeArea(.all, edges: .bottom)
     }
-
-    private var categoryGrid: some View {
-        let categories = selectedEntryType == .income ? incomeCategories : expenseCategories
-        
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 15) {
-                // Add new category button
-                Button(action: { isAddingCategory = true }) {
-                    VStack(spacing: 8) {
-                        Circle()
-                            .fill(Color.gray.opacity(0.1))
-                            .frame(width: 60, height: 60)
-                            .overlay(Image(systemName: "plus").font(.title).foregroundStyle(.secondary))
-                        Text("Añadir")
-                            .font(.caption)
-                            .foregroundStyle(AuroraColors.primaryText)
-                    }
-                    .padding(6)
-                }
-
-                ForEach(categories) { category in
-                    Button(action: { selectedCategory = category }) {
-                        VStack(spacing: 8) {
-                            Circle()
-                                .fill(category.color.opacity(0.2))
-                                .frame(width: 60, height: 60)
-                                .overlay(
-                                    ZStack {
-                                        Text(category.icon.isEmoji ? category.icon : "")
-                                            .font(.title)
-                                        Image(systemName: category.icon.isEmoji ? "" : category.icon)
-                                            .font(.title)
-                                            .foregroundStyle(category.color)
-                                    }
-                                )
-                            Text(category.name)
-                                .font(.caption)
-                                .foregroundStyle(AuroraColors.primaryText)
-                        }
-                        .padding(6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.white.opacity(selectedCategory == category ? 0.7 : 0.0))
-                        )
-                        .scaleEffect(selectedCategory == category ? 1.1 : 1.0)
-                        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: selectedCategory)
-                    }
-                }
-            }
-            .padding(.horizontal, 4)
-        }
-        .frame(height: 100)
-    }
     
     private var saveButton: some View {
         Button(action: handleSave) {
@@ -245,14 +200,31 @@ struct AddEntrySheet: View {
                 .shadow(color: .purple.opacity(0.4), radius: 10, y: 5)
         }
         .padding(.top)
-        .disabled(amount <= 0)
-        .opacity(amount <= 0 ? 0.6 : 1.0)
+        .disabled(amount <= 0 || selectedSubcategory == nil)
+        .opacity(amount <= 0 || selectedSubcategory == nil ? 0.6 : 1.0)
     }
 
     // MARK: - Functions
     
+    private func addSubcategory(to category: TransactionCategory, with name: String) {
+        let newSubcategory = Subcategory(name: name)
+        if selectedEntryType == .income {
+            if let index = incomeTransactionCategories.firstIndex(where: { $0.id == category.id }) {
+                incomeTransactionCategories[index].subcategories.append(newSubcategory)
+            }
+        } else {
+            if let index = expenseTransactionCategories.firstIndex(where: { $0.id == category.id }) {
+                expenseTransactionCategories[index].subcategories.append(newSubcategory)
+            }
+        }
+        selectedSubcategory = newSubcategory // Automatically select the newly added subcategory
+        selectedTransactionCategory = category // Ensure the parent category is also selected
+    }
+
     private func handleSave() {
-        let categoryAndDescription = description.isEmpty ? selectedCategory.name : "\(selectedCategory.name) - \(description)"
+        guard let finalSubcategory = selectedSubcategory else { return }
+
+        let categoryAndDescription = description.isEmpty ? finalSubcategory.name : "\(finalSubcategory.name) - \(description)"
         
         let result = FinanceEntrySheetResult(
             amount: amount,
@@ -264,16 +236,108 @@ struct AddEntrySheet: View {
     }
 }
 
-// MARK: - Add Category View
+// MARK: - CategorySelectionView
+
+private struct CategorySelectionView: View {
+    @Binding var incomeCategories: [TransactionCategory]
+    @Binding var expenseCategories: [TransactionCategory]
+    @Binding var selectedEntryType: FinanceEntryFlow
+    @Binding var selectedTransactionCategory: TransactionCategory?
+    @Binding var selectedSubcategory: Subcategory?
+    @Binding var showingAddSubcategoryAlert: Bool
+    @Binding var categoryToAddTo: TransactionCategory?
+    @Binding var isAddingCategory: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Button(action: { isAddingCategory = true }) {
+                    Label("Añadir Categoría", systemImage: "plus")
+                }
+                .padding(.horizontal)
+                
+                ForEach(selectedEntryType == .income ? incomeCategories : expenseCategories) { category in
+                    DisclosureGroup(
+                        isExpanded: Binding(
+                            get: { selectedTransactionCategory?.id == category.id },
+                            set: { isExpanded in
+                                if isExpanded {
+                                    selectedTransactionCategory = category
+                                } else if selectedTransactionCategory?.id == category.id {
+                                    selectedTransactionCategory = nil
+                                }
+                            }
+                        )
+                    ) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(category.subcategories) { subcategory in
+                                Button(action: {
+                                    selectedSubcategory = subcategory
+                                    selectedTransactionCategory = category // Also select parent category
+                                }) {
+                                    HStack {
+                                        Text(subcategory.name)
+                                        Spacer()
+                                        if selectedSubcategory?.id == subcategory.id {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.accentColor)
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle()) // Make the whole row tappable
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .foregroundColor(Color.primary)
+                            }
+                            // Button to add new subcategory
+                            Button(action: {
+                                categoryToAddTo = category
+                                showingAddSubcategoryAlert = true
+                            }) {
+                                Label("Añadir subcategoría", systemImage: "plus.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.top, 4)
+                        }
+                        .padding(.leading, 20)
+                        .transition(.opacity) // Minimal animation for subcategories
+                    } label: {
+                        HStack {
+                            Image(systemName: category.icon)
+                                .foregroundColor(category.color)
+                            Text(category.name)
+                                .font(.headline)
+                            Spacer()
+                            if selectedTransactionCategory?.id == category.id && selectedSubcategory == nil {
+                                Image(systemName: "chevron.down")
+                                    .foregroundColor(.secondary)
+                            } else if selectedTransactionCategory?.id == category.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .padding(.vertical, 5)
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: selectedTransactionCategory?.id == category.id) // Animation for disclosure group
+                }
+            }
+            .padding(.horizontal)
+        }
+        .frame(height: 250) // Fixed height for the scroll view
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+// MARK: - AddCategoryView
 
 private struct AddCategoryView: View {
     @Environment(\.presentationMode) var presentationMode
-    var onSave: (EntryCategory) -> Void
+    var onSave: (TransactionCategory) -> Void
     
     @State private var name = ""
     @State private var icon = "tag.fill"
     @State private var color = Color.blue
-    @State private var isEmoji = false
     
     let iconColumns = [GridItem(.adaptive(minimum: 50))]
     let sampleIcons = ["cart.fill", "car.fill", "house.fill", "gamecontroller.fill", "bag.fill", "heart.fill", "book.fill", "airplane", "bus.fill", "fuelpump.fill", "gift.fill", "phone.fill", "display", "music.note", "lightbulb.fill"]
@@ -281,28 +345,19 @@ private struct AddCategoryView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section("Nombre y Emoji/Icono") {
+                Section("Nombre") {
                     TextField("Nombre de la Categoría", text: $name)
-                    Toggle("Usar Emoji como Icono", isOn: $isEmoji)
-                    if isEmoji {
-                        TextField("Pega un emoji aquí", text: $icon)
-                            .onChange(of: icon) { newValue in
-                                icon = String(newValue.prefix(1))
-                            }
-                    }
                 }
 
-                if !isEmoji {
-                    Section("Icono") {
-                        LazyVGrid(columns: iconColumns, spacing: 20) {
-                            ForEach(sampleIcons, id: \.self) { sampleIcon in
-                                Image(systemName: sampleIcon)
-                                    .font(.title2)
-                                    .padding()
-                                    .background(icon == sampleIcon ? color.opacity(0.4) : Color.gray.opacity(0.1))
-                                    .clipShape(Circle())
-                                    .onTapGesture { icon = sampleIcon }
-                            }
+                Section("Icono") {
+                    LazyVGrid(columns: iconColumns, spacing: 20) {
+                        ForEach(sampleIcons, id: \.self) { sampleIcon in
+                            Image(systemName: sampleIcon)
+                                .font(.title2)
+                                .padding()
+                                .background(icon == sampleIcon ? color.opacity(0.4) : Color.gray.opacity(0.1))
+                                .clipShape(Circle())
+                                .onTapGesture { icon = sampleIcon }
                         }
                     }
                 }
@@ -319,7 +374,7 @@ private struct AddCategoryView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
-                        let newCategory = EntryCategory(name: name, icon: icon, color: color)
+                        let newCategory = TransactionCategory(name: name, subcategories: [], icon: icon, color: color)
                         onSave(newCategory)
                         presentationMode.wrappedValue.dismiss()
                     }
@@ -330,36 +385,6 @@ private struct AddCategoryView: View {
     }
 }
 
-private extension String {
-    var isEmoji: Bool {
-        contains { $0.isEmoji }
-    }
-}
-
-private extension Character {
-    /// A simple check to see if a character is an emoji.
-    var isEmoji: Bool {
-        for scalar in unicodeScalars {
-            switch scalar.value {
-            case 0x1F600...0x1F64F, // Emoticons
-                 0x1F300...0x1F5FF, // Misc Symbols and Pictographs
-                 0x1F680...0x1F6FF, // Transport & Map
-                 0x2600...0x26FF,   // Misc symbols
-                 0x2700...0x27BF,   // Dingbats
-                 0xFE00...0xFE0F,   // Variation Selectors
-                 0x1F900...0x1F9FF, // Supplemental Symbols and Pictographs
-                 127000...127600, // Various asian characters
-                 65024...65039, // Variation selector
-                 9100...9300, // Misc items
-                 8400...8447: // Combining Diacritical Marks for Symbols
-                return true
-            default:
-                continue
-            }
-        }
-        return false
-    }
-}
 
 struct AddEntrySheet_Previews: PreviewProvider {
     static var previews: some View {

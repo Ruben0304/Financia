@@ -10,7 +10,7 @@ struct ContentView: View {
     @State private var usdToCupRate: Double = 24.37
     @State private var entrySheetKind: FinanceEntryFlow?
 
-    private let api = ElToqueAPI(token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MzE0NzIzNywianRpIjoiMGEwNmMzZTktOTMyZC00NTEyLWJiNTEtYzZiMzM5MzU2NzZhIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjY5MGY3NGQxZTkyYmU3N2VhMzhkNDM5NiIsIm5iZiI6MTc2MzE0NzIzNywiZXhwIjoxNzk0NjgzMjM3fQ.qTb0NhE9RxbBx6XsVjLxiNja3W7WwvnJiTYKXZ2E75o")
+    private let api = ElToqueAPI(token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MzE0NzIzNywianRpIjoiMGEwNmMzZTktOTMyZC00NTEyLWJiNTEtYzZiMzM5MzU2NzZhIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjY5MGY3NGQxZTkyYmU3N2VhMzhkNDM5NiIsIm5iZiI6MTc2MzE0NzIzNywiZXhwIjoxNzk0NjgzMjM3fQ.qTb0NhE9ErbBx6XsVjLxiNja3W7WwvnJiTYKXZ2E75o")
 
     var body: some View {
         ZStack {
@@ -60,12 +60,7 @@ struct ContentView: View {
                 Label("General", systemImage: "rectangle.grid.2x2.fill")
             }
 
-            PlaceholderTab(
-                title: "Carteras",
-                message: "Aquí podrás revisar y crear nuevas carteras muy pronto."
-            )
-            .padding(.horizontal, 32)
-            .padding(.top, 48)
+            WalletsView(usdToCupRate: $usdToCupRate)
             .tabItem {
                 Label("Carteras", systemImage: "wallet.pass")
             }
