@@ -5,15 +5,18 @@ struct Lugar: Identifiable, Codable, Hashable {
     var id: UUID
     var nombre: String
     var visualKeywords: [String]?
+    var backendId: String?
 
     init(
         id: UUID = UUID(),
         nombre: String,
-        visualKeywords: [String]? = nil
+        visualKeywords: [String]? = nil,
+        backendId: String? = nil
     ) {
         self.id = id
         self.nombre = nombre
         self.visualKeywords = visualKeywords
+        self.backendId = backendId
     }
 }
 

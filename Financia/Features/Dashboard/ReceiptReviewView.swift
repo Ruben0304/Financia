@@ -19,6 +19,7 @@ struct ReceiptReviewView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var transactionManager: TransactionManager
     @EnvironmentObject private var categoryManager: CategoryManager
+    @EnvironmentObject private var lugarManager: LugarManager
 
     let data: ReceiptReviewData
 
@@ -26,7 +27,6 @@ struct ReceiptReviewView: View {
     @State private var transactionDate: Date = .now
     @State private var description: String = ""
     @State private var placeName: String = ""
-    @State private var receiptLugar: Lugar?
     @State private var receiptSubitems: [SubItem] = []
 
     @State private var selectedWallet: Wallet?
@@ -36,22 +36,37 @@ struct ReceiptReviewView: View {
     @State private var newSubcategoryName = ""
     @State private var categoryToAddTo: TransactionCategory?
     @State private var isAddingCategory = false
+    @State private var showMissingDataAlert: Bool = false
+
+    private var requiresPlaceName: Bool {
+        data.extraction.lugar.id == nil
+    }
+
+    private var hasValidPlaceName: Bool {
+        let trimmed = placeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !requiresPlaceName || !trimmed.isEmpty
+    }
 
     private var canSave: Bool {
-        amount > 0 && selectedWallet != nil && selectedSubcategory != nil
+        amount > 0 && selectedWallet != nil && selectedSubcategory != nil && hasValidPlaceName
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    detectedSection
+                VStack(spacing: 18) {
+                    if !canSave {
+                        missingDataBanner
+                    }
+                    summarySection
+                    placeSection
+                    itemsSection
                     requiredSection
                     optionalSection
                 }
                 .padding()
             }
-            .navigationTitle("Revisar vale")
+            .navigationTitle("Registrar vale")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -61,13 +76,21 @@ struct ReceiptReviewView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
-                        handleSave()
+                        if canSave {
+                            handleSave()
+                        } else {
+                            showMissingDataAlert = true
+                        }
                     }
-                    .disabled(!canSave)
                 }
             }
             .onAppear {
                 initializeFromData()
+            }
+            .alert("Faltan datos", isPresented: $showMissingDataAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(missingDataMessage)
             }
             .alert("Nueva Subcategoría", isPresented: $showingAddSubcategoryAlert) {
                 TextField("Nombre", text: $newSubcategoryName)
@@ -91,33 +114,71 @@ struct ReceiptReviewView: View {
         }
     }
 
-    private var detectedSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Detectado")
-                .font(.headline)
+    private var summarySection: some View {
+        GroupBox {
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    TextField("Monto", value: $amount, format: .number.precision(.fractionLength(2)))
+                        .keyboardType(.decimalPad)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
 
-            HStack(spacing: 12) {
-                TextField("Monto", value: $amount, format: .number.precision(.fractionLength(2)))
-                    .keyboardType(.decimalPad)
+                    Text(data.currencyCode)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                DatePicker("Fecha", selection: $transactionDate, displayedComponents: .date)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-
-                Text(data.currencyCode)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14))
+                    .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
             }
+        } label: {
+            Label("Resumen del vale", systemImage: "doc.text.magnifyingglass")
+                .font(.headline)
+        }
+    }
 
-            DatePicker("Fecha", selection: $transactionDate, displayedComponents: .date)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+    private var placeSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                if requiresPlaceName {
+                    TextField("Nombre del lugar (requerido)", text: $placeName)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+                } else {
+                    TextField("Lugar (opcional)", text: $placeName)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+                }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Items")
-                    .font(.subheadline.weight(.semibold))
+                if !data.extraction.lugar.palabrasClave.isEmpty {
+                    LazyVGrid(columns: keywordColumns, alignment: .leading, spacing: 8) {
+                        ForEach(data.extraction.lugar.palabrasClave, id: \.self) { keyword in
+                            Text(keyword)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color(.systemGray5), in: Capsule())
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Lugar", systemImage: "mappin.and.ellipse")
+                .font(.headline)
+        }
+    }
+
+    private var itemsSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
                 if receiptSubitems.isEmpty {
                     Text("Sin items detectados.")
                         .font(.caption)
@@ -130,92 +191,90 @@ struct ReceiptReviewView: View {
                         }
                     }
                 }
+
                 Button {
                     receiptSubitems.append(SubItem(nombre: "", cantidad: 1, precio: nil))
                 } label: {
                     Label("Agregar item", systemImage: "plus")
                 }
             }
+        } label: {
+            Label("Items", systemImage: "list.bullet.rectangle")
+                .font(.headline)
         }
-        .padding(16)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20))
-        .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
     }
 
     private var requiredSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Completa")
-                .font(.headline)
-
-            if !walletManager.wallets.isEmpty {
-                Menu {
-                    ForEach(walletManager.wallets) { wallet in
-                        Button(action: { selectedWallet = wallet }) {
-                            HStack {
-                                Image(systemName: wallet.icon)
-                                Text("\(wallet.name) (\(wallet.currency.symbol))")
-                                if selectedWallet?.id == wallet.id {
-                                    Image(systemName: "checkmark")
+        GroupBox {
+            VStack(alignment: .leading, spacing: 14) {
+                if !walletManager.wallets.isEmpty {
+                    Menu {
+                        ForEach(walletManager.wallets) { wallet in
+                            Button(action: { selectedWallet = wallet }) {
+                                HStack {
+                                    Image(systemName: wallet.icon)
+                                    Text("\(wallet.name) (\(wallet.currency.symbol))")
+                                    if selectedWallet?.id == wallet.id {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
+                    } label: {
+                        HStack {
+                            Image(systemName: selectedWallet?.icon ?? "wallet.pass")
+                                .foregroundColor(selectedWallet?.color ?? .blue)
+                            Text(selectedWallet?.name ?? "Seleccionar Cartera")
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
                     }
-                } label: {
-                    HStack {
-                        Image(systemName: selectedWallet?.icon ?? "wallet.pass")
-                            .foregroundColor(selectedWallet?.color ?? .blue)
-                        Text(selectedWallet?.name ?? "Seleccionar Cartera")
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                 }
-            }
 
-            ReceiptCategorySelectionView(
-                selectedTransactionCategory: $selectedTransactionCategory,
-                selectedSubcategory: $selectedSubcategory,
-                showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
-                categoryToAddTo: $categoryToAddTo,
-                isAddingCategory: $isAddingCategory
-            )
+                ReceiptCategoryGrid(
+                    selectedTransactionCategory: $selectedTransactionCategory,
+                    selectedSubcategory: $selectedSubcategory,
+                    showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
+                    categoryToAddTo: $categoryToAddTo,
+                    isAddingCategory: $isAddingCategory
+                )
+            }
+        } label: {
+            Label("Categoría", systemImage: "square.grid.2x2")
+                .font(.headline)
         }
-        .padding(16)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20))
-        .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
     }
 
     private var optionalSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Opcional")
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Descripción", text: $description, axis: .vertical)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+                    .lineLimit(2...4)
+            }
+        } label: {
+            Label("Notas", systemImage: "note.text")
                 .font(.headline)
-
-            TextField("Lugar (opcional)", text: $placeName)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14))
-
-            TextField("Descripción", text: $description, axis: .vertical)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14))
-                .lineLimit(2...4)
         }
-        .padding(16)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20))
-        .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
     }
 
     private func initializeFromData() {
         amount = data.amount
         transactionDate = Date()
         description = data.suggestedDescription
-        receiptLugar = data.lugar
-        placeName = data.lugar.nombre
+        if let backendId = data.extraction.lugar.id,
+           let existingLugar = lugarManager.lugar(for: backendId) {
+            placeName = existingLugar.nombre
+        } else {
+            placeName = data.lugar.nombre
+        }
         receiptSubitems = data.subitems
 
         selectedWallet = walletManager.wallets.first
@@ -236,11 +295,16 @@ struct ReceiptReviewView: View {
               let finalWallet = selectedWallet else { return }
 
         let trimmedPlace = placeName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalLugar: Lugar? = trimmedPlace.isEmpty ? nil : Lugar(
-            id: receiptLugar?.id ?? UUID(),
-            nombre: trimmedPlace,
-            visualKeywords: receiptLugar?.visualKeywords
-        )
+        let finalLugar: Lugar? = {
+            if trimmedPlace.isEmpty && requiresPlaceName {
+                return nil
+            }
+            let upserted = lugarManager.upsertLugar(
+                apiLugar: data.extraction.lugar,
+                userProvidedName: trimmedPlace.isEmpty ? nil : trimmedPlace
+            )
+            return upserted
+        }()
 
         let cleanedSubitems = receiptSubitems.compactMap { item -> SubItem? in
             let name = item.nombre.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -270,9 +334,44 @@ struct ReceiptReviewView: View {
         transactionManager.addTransaction(transaction)
         dismiss()
     }
+
+    private var missingDataMessage: String {
+        var missing: [String] = []
+        if requiresPlaceName && !hasValidPlaceName {
+            missing.append("Agrega un nombre de lugar")
+        }
+        if selectedWallet == nil {
+            missing.append("Selecciona una cartera")
+        }
+        if selectedSubcategory == nil {
+            missing.append("Selecciona una categoría")
+        }
+        if missing.isEmpty {
+            return "Completa los datos faltantes para guardar."
+        }
+        return missing.joined(separator: ". ") + "."
+    }
+
+    private var missingDataBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text(missingDataMessage)
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var keywordColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 110), spacing: 8)]
+    }
+
 }
 
-private struct ReceiptCategorySelectionView: View {
+private struct ReceiptCategoryGrid: View {
     @EnvironmentObject var categoryManager: CategoryManager
     @Binding var selectedTransactionCategory: TransactionCategory?
     @Binding var selectedSubcategory: Subcategory?
@@ -281,82 +380,106 @@ private struct ReceiptCategorySelectionView: View {
     @Binding var isAddingCategory: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Selecciona categoría")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
                 Button(action: { isAddingCategory = true }) {
-                    Label("Añadir Categoría", systemImage: "plus")
-                }
-                .padding(.horizontal)
-
-                ForEach(categoryManager.expenseCategories) { category in
-                    DisclosureGroup(
-                        isExpanded: Binding(
-                            get: { selectedTransactionCategory?.id == category.id },
-                            set: { isExpanded in
-                                if isExpanded {
-                                    selectedTransactionCategory = category
-                                } else if selectedTransactionCategory?.id == category.id {
-                                    selectedTransactionCategory = nil
-                                }
-                            }
-                        )
-                    ) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(category.subcategories) { subcategory in
-                                Button(action: {
-                                    selectedSubcategory = subcategory
-                                    selectedTransactionCategory = category
-                                }) {
-                                    HStack {
-                                        Text(subcategory.name)
-                                        Spacer()
-                                        if selectedSubcategory?.id == subcategory.id {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                    .padding(.vertical, 4)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .foregroundColor(Color.primary)
-                            }
-                            Button(action: {
-                                categoryToAddTo = category
-                                showingAddSubcategoryAlert = true
-                            }) {
-                                Label("Añadir subcategoría", systemImage: "plus.circle.fill")
-                                    .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.top, 4)
-                        }
-                        .padding(.leading, 20)
-                        .transition(.opacity)
-                    } label: {
-                        HStack {
-                            Image(systemName: category.icon)
-                                .foregroundColor(category.color)
-                            Text(category.name)
-                                .font(.headline)
-                            Spacer()
-                            if selectedTransactionCategory?.id == category.id && selectedSubcategory == nil {
-                                Image(systemName: "chevron.down")
-                                    .foregroundColor(.secondary)
-                            } else if selectedTransactionCategory?.id == category.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        .padding(.vertical, 5)
-                    }
-                    .animation(.easeInOut(duration: 0.2), value: selectedTransactionCategory?.id == category.id)
+                    Label("Nueva", systemImage: "plus.circle.fill")
                 }
             }
-            .padding(.horizontal)
+
+            LazyVGrid(columns: categoryColumns, spacing: 12) {
+                ForEach(categoryManager.expenseCategories) { category in
+                    CategoryCard(
+                        category: category,
+                        selectedTransactionCategory: $selectedTransactionCategory,
+                        selectedSubcategory: $selectedSubcategory,
+                        showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
+                        categoryToAddTo: $categoryToAddTo
+                    )
+                }
+            }
         }
-        .frame(height: 230)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var categoryColumns: [GridItem] {
+        [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    }
+}
+
+private struct CategoryCard: View {
+    let category: TransactionCategory
+    @Binding var selectedTransactionCategory: TransactionCategory?
+    @Binding var selectedSubcategory: Subcategory?
+    @Binding var showingAddSubcategoryAlert: Bool
+    @Binding var categoryToAddTo: TransactionCategory?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header
+            subcategoryGrid
+            addSubcategoryButton
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 3)
+        )
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: category.icon)
+                .foregroundColor(category.color)
+            Text(category.name)
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+            if selectedTransactionCategory?.id == category.id {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.accentColor)
+            }
+        }
+    }
+
+    private var subcategoryGrid: some View {
+        LazyVGrid(columns: subcategoryColumns, alignment: .leading, spacing: 6) {
+            ForEach(category.subcategories) { subcategory in
+                subcategoryChip(for: subcategory)
+            }
+        }
+    }
+
+    private func subcategoryChip(for subcategory: Subcategory) -> some View {
+        let isSelected = selectedSubcategory?.id == subcategory.id
+        return Button {
+            selectedSubcategory = subcategory
+            selectedTransactionCategory = category
+        } label: {
+            Text(subcategory.name)
+                .font(.caption)
+                .foregroundColor(isSelected ? .white : .primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isSelected ? category.color : Color(.systemGray6), in: Capsule())
+        }
+    }
+
+    private var addSubcategoryButton: some View {
+        Button(action: {
+            categoryToAddTo = category
+            showingAddSubcategoryAlert = true
+        }) {
+            Label("Agregar subcategoría", systemImage: "plus")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+        }
+    }
+
+    private var subcategoryColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 80), spacing: 6)]
     }
 }
 

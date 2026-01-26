@@ -182,9 +182,11 @@ class ReceiptScannerViewModel: ObservableObject {
     @Published var sourceType: UIImagePickerController.SourceType = .photoLibrary
 
     private let receiptService: ReceiptService
+    private let lugarManager: LugarManager
 
-    init(receiptService: ReceiptService = ReceiptService()) {
+    init(receiptService: ReceiptService = ReceiptService(), lugarManager: LugarManager = .shared) {
         self.receiptService = receiptService
+        self.lugarManager = lugarManager
     }
 
     func processReceipt() async -> ReceiptExtraction? {
@@ -194,8 +196,7 @@ class ReceiptScannerViewModel: ObservableObject {
         defer { isProcessing = false }
 
         do {
-            // TODO: Obtener lugares conocidos del usuario
-            let lugares: [Lugar]? = nil // Aquí irían los lugares guardados
+            let lugares: [Lugar]? = lugarManager.lugares.isEmpty ? nil : lugarManager.lugares
 
             print("[ReceiptScanner] Starting extract. Instructions length: \(instructions.count)")
 

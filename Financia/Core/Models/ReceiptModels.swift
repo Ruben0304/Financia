@@ -16,7 +16,7 @@ struct KnownPlace: Codable {
 
     /// Inicializador desde el modelo Lugar local
     init(from lugar: Lugar) {
-        self.id = lugar.id.uuidString
+        self.id = lugar.backendId ?? lugar.id.uuidString
         self.nombre = lugar.nombre
         self.palabrasClave = lugar.visualKeywords ?? []
     }
@@ -39,10 +39,12 @@ struct ReceiptExtraction: Codable {
 
     /// Convierte la respuesta de la API a modelos locales
     func toLugar() -> Lugar {
+        let uuid = lugar.id.flatMap { UUID(uuidString: $0) }
         return Lugar(
-            id: lugar.id.flatMap { UUID(uuidString: $0) } ?? UUID(),
+            id: uuid ?? UUID(),
             nombre: lugar.nombre ?? "",
-            visualKeywords: lugar.palabrasClave
+            visualKeywords: lugar.palabrasClave,
+            backendId: lugar.id
         )
     }
 
