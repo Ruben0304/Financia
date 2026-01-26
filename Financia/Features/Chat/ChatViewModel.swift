@@ -12,13 +12,16 @@ class ChatViewModel: ObservableObject {
 
     private let chatService: ChatService
     private let transactionManager: TransactionManager
+    private let exchangeRateManager: ExchangeRateManager
 
     init(
         chatService: ChatService = ChatService(),
-        transactionManager: TransactionManager = .shared
+        transactionManager: TransactionManager = .shared,
+        exchangeRateManager: ExchangeRateManager = .shared
     ) {
         self.chatService = chatService
         self.transactionManager = transactionManager
+        self.exchangeRateManager = exchangeRateManager
     }
 
     /// Envía un mensaje al chat incluyendo el contexto de transacciones
@@ -70,11 +73,22 @@ class ChatViewModel: ObservableObject {
             isLoading = false
         } catch {
             isLoading = false
-            // Agregar mensaje de error
-            let errorMessage = ChatMessage(
-                content: "Error al enviar mensaje: \(error.localizedDescription)",
-                isUser: false
-            )
+            let message: String
+            if let apiError = error as? ChatAPIError {
+                switch apiError {
+                case .serverError(let detail):
+                    message = detail
+                case .invalidResponse:
+                    message = "Respuesta inválida del servidor."
+                case .encodingError:
+                    message = "Error al codificar el mensaje."
+                case .networkError(let underlying):
+                    message = "Error de red: \(underlying.localizedDescription)"
+                }
+            } else {
+                message = "Error al enviar mensaje: \(error.localizedDescription)"
+            }
+            let errorMessage = ChatMessage(content: message, isUser: false)
             messages.append(errorMessage)
         }
     }
@@ -102,7 +116,8 @@ class ChatViewModel: ObservableObject {
         var context = "=== CONTEXTO DE TRANSACCIONES ===\n"
         context += "Periodo: \(timePeriod.rawValue)\n"
         context += "Tipo: \(transactionFilter.rawValue)\n"
-        context += "Total de transacciones: \(transactions.count)\n\n"
+        context += "Total de transacciones: \(transactions.count)\n"
+        context += "\(usdRateContextLine())\n\n"
 
         if transactions.isEmpty {
             context += "No hay transacciones en el periodo seleccionado.\n"
@@ -137,6 +152,13 @@ class ChatViewModel: ObservableObject {
         }
 
         return context
+    }
+
+    private func usdRateContextLine() -> String {
+        if let rate = exchangeRateManager.effectiveUsdToCupRate() {
+            return "Tasa USD/CUP actual (informal): 1 USD = \(String(format: "%.2f", rate)) CUP"
+        }
+        return "Tasa USD/CUP actual (informal): sin dato"
     }
 
     /// Limpia el historial de mensajes

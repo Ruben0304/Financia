@@ -39,6 +39,23 @@ class LugarManager: ObservableObject {
         return lugares.first { $0.backendId == backendId }
     }
 
+    func addLugar(_ lugar: Lugar) {
+        lugares.append(lugar)
+        saveLugares()
+    }
+
+    func updateLugar(_ lugar: Lugar) {
+        if let index = lugares.firstIndex(where: { $0.id == lugar.id }) {
+            lugares[index] = lugar
+            saveLugares()
+        }
+    }
+
+    func deleteLugar(_ lugar: Lugar) {
+        lugares.removeAll { $0.id == lugar.id }
+        saveLugares()
+    }
+
     func upsertLugar(apiLugar: LugarAPI, userProvidedName: String?) -> Lugar {
         let trimmedName = userProvidedName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let nameCandidate = (trimmedName?.isEmpty == false ? trimmedName : nil)

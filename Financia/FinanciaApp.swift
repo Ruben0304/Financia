@@ -21,6 +21,9 @@ struct FinanciaApp: App {
         _ = CategoryManager.shared
         _ = TransactionManager.shared
         _ = LugarManager.shared
+        _ = DebtManager.shared
+        _ = ProfileManager.shared
+        _ = SavingsGoalManager.shared
     }
 
     var body: some Scene {
@@ -31,6 +34,9 @@ struct FinanciaApp: App {
                 .environmentObject(TransactionManager.shared)
                 .environmentObject(ExchangeRateManager.shared)
                 .environmentObject(LugarManager.shared)
+                .environmentObject(DebtManager.shared)
+                .environmentObject(ProfileManager.shared)
+                .environmentObject(SavingsGoalManager.shared)
         }
     }
 }

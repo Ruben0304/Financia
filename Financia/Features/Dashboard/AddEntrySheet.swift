@@ -85,13 +85,101 @@ struct AddEntrySheet: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            Color.clear.ignoresSafeArea()
+        NavigationStack {
+            Form {
+                Section("Tipo") {
+                    if allowsEntryTypeToggle {
+                        Picker("Tipo de transacción", selection: $selectedEntryType) {
+                            Text("Gasto").tag(FinanceEntryFlow.expense)
+                            Text("Ingreso").tag(FinanceEntryFlow.income)
+                        }
+                        .pickerStyle(.segmented)
+                    } else {
+                        Text("Gasto")
+                    }
+                }
 
-            VStack(spacing: 0) {
-                header
-                amountDisplay
-                detailsSheet
+                Section("Monto") {
+                    TextField("0.00", value: $amount, format: .number.precision(.fractionLength(2)))
+                        .keyboardType(.decimalPad)
+                }
+
+                Section("Cartera") {
+                    if !walletManager.wallets.isEmpty {
+                        Menu {
+                            ForEach(walletManager.wallets) { wallet in
+                                Button(action: { selectedWallet = wallet }) {
+                                    HStack {
+                                        Image(systemName: wallet.icon)
+                                        Text("\(wallet.name) (\(wallet.currency.symbol))")
+                                        if selectedWallet?.id == wallet.id {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: selectedWallet?.icon ?? "wallet.pass")
+                                    .foregroundColor(selectedWallet?.color ?? .blue)
+                                Text(selectedWallet?.name ?? "Seleccionar Cartera")
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Section("Categoría") {
+                    CategoryGridSelector(
+                        title: "Selecciona categoría",
+                        categories: selectedEntryType == .income ? categoryManager.incomeCategories : categoryManager.expenseCategories,
+                        selectedCategory: $selectedTransactionCategory,
+                        selectedSubcategory: $selectedSubcategory,
+                        onAddCategory: {
+                            isAddingCategory = true
+                        },
+                        onAddSubcategory: { category in
+                            categoryToAddTo = category
+                            showingAddSubcategoryAlert = true
+                        }
+                    )
+                }
+
+                Section("Detalles") {
+                    if prefill != nil {
+                        TextField("Lugar (opcional)", text: $placeName)
+                    }
+
+                    TextField("Descripción", text: $description)
+
+                    DatePicker("Fecha", selection: $transactionDate, displayedComponents: .date)
+                }
+
+                if prefill != nil {
+                    Section("Items") {
+                        receiptDetailsSection
+                    }
+                }
+            }
+            .navigationTitle(selectedEntryType == .income ? "Nuevo ingreso" : "Nuevo gasto")
+            .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
+            .keyboardDoneToolbar()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        handleSave()
+                    }
+                    .disabled(amount <= 0 || selectedSubcategory == nil || selectedWallet == nil)
+                }
             }
         }
         .onAppear {
@@ -205,13 +293,18 @@ struct AddEntrySheet: View {
                 }
             }
 
-            CategorySelectionView(
-                selectedEntryType: $selectedEntryType,
-                selectedTransactionCategory: $selectedTransactionCategory,
+            CategoryGridSelector(
+                title: "Selecciona categoría",
+                categories: selectedEntryType == .income ? categoryManager.incomeCategories : categoryManager.expenseCategories,
+                selectedCategory: $selectedTransactionCategory,
                 selectedSubcategory: $selectedSubcategory,
-                showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
-                categoryToAddTo: $categoryToAddTo,
-                isAddingCategory: $isAddingCategory
+                onAddCategory: {
+                    isAddingCategory = true
+                },
+                onAddSubcategory: { category in
+                    categoryToAddTo = category
+                    showingAddSubcategoryAlert = true
+                }
             )
 
             if prefill != nil {
@@ -398,154 +491,6 @@ struct AddEntrySheet: View {
         .padding(.horizontal)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-// MARK: - CategorySelectionView
-
-private struct CategorySelectionView: View {
-    @EnvironmentObject var categoryManager: CategoryManager
-    @Binding var selectedEntryType: FinanceEntryFlow
-    @Binding var selectedTransactionCategory: TransactionCategory?
-    @Binding var selectedSubcategory: Subcategory?
-    @Binding var showingAddSubcategoryAlert: Bool
-    @Binding var categoryToAddTo: TransactionCategory?
-    @Binding var isAddingCategory: Bool
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Button(action: { isAddingCategory = true }) {
-                    Label("Añadir Categoría", systemImage: "plus")
-                }
-                .padding(.horizontal)
-
-                ForEach(selectedEntryType == .income ? categoryManager.incomeCategories : categoryManager.expenseCategories) { category in
-                    DisclosureGroup(
-                        isExpanded: Binding(
-                            get: { selectedTransactionCategory?.id == category.id },
-                            set: { isExpanded in
-                                if isExpanded {
-                                    selectedTransactionCategory = category
-                                } else if selectedTransactionCategory?.id == category.id {
-                                    selectedTransactionCategory = nil
-                                }
-                            }
-                        )
-                    ) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(category.subcategories) { subcategory in
-                                Button(action: {
-                                    selectedSubcategory = subcategory
-                                    selectedTransactionCategory = category // Also select parent category
-                                }) {
-                                    HStack {
-                                        Text(subcategory.name)
-                                        Spacer()
-                                        if selectedSubcategory?.id == subcategory.id {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                    .padding(.vertical, 4)
-                                    .contentShape(Rectangle()) // Make the whole row tappable
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .foregroundColor(Color.primary)
-                            }
-                            // Button to add new subcategory
-                            Button(action: {
-                                categoryToAddTo = category
-                                showingAddSubcategoryAlert = true
-                            }) {
-                                Label("Añadir subcategoría", systemImage: "plus.circle.fill")
-                                    .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.top, 4)
-                        }
-                        .padding(.leading, 20)
-                        .transition(.opacity) // Minimal animation for subcategories
-                    } label: {
-                        HStack {
-                            Image(systemName: category.icon)
-                                .foregroundColor(category.color)
-                            Text(category.name)
-                                .font(.headline)
-                            Spacer()
-                            if selectedTransactionCategory?.id == category.id && selectedSubcategory == nil {
-                                Image(systemName: "chevron.down")
-                                    .foregroundColor(.secondary)
-                            } else if selectedTransactionCategory?.id == category.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        .padding(.vertical, 5)
-                    }
-                    .animation(.easeInOut(duration: 0.2), value: selectedTransactionCategory?.id == category.id) // Animation for disclosure group
-                }
-            }
-            .padding(.horizontal)
-        }
-        .frame(height: 250) // Fixed height for the scroll view
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-// MARK: - AddCategoryView
-
-private struct AddCategoryView: View {
-    @Environment(\.presentationMode) var presentationMode
-    var onSave: (TransactionCategory) -> Void
-    
-    @State private var name = ""
-    @State private var icon = "tag.fill"
-    @State private var color = Color.blue
-    
-    let iconColumns = [GridItem(.adaptive(minimum: 50))]
-    let sampleIcons = ["cart.fill", "car.fill", "house.fill", "gamecontroller.fill", "bag.fill", "heart.fill", "book.fill", "airplane", "bus.fill", "fuelpump.fill", "gift.fill", "phone.fill", "display", "music.note", "lightbulb.fill"]
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section("Nombre") {
-                    TextField("Nombre de la Categoría", text: $name)
-                }
-
-                Section("Icono") {
-                    LazyVGrid(columns: iconColumns, spacing: 20) {
-                        ForEach(sampleIcons, id: \.self) { sampleIcon in
-                            Image(systemName: sampleIcon)
-                                .font(.title2)
-                                .padding()
-                                .background(icon == sampleIcon ? color.opacity(0.4) : Color.gray.opacity(0.1))
-                                .clipShape(Circle())
-                                .onTapGesture { icon = sampleIcon }
-                        }
-                    }
-                }
-                
-                Section("Color") {
-                    ColorPicker("Elige un color", selection: $color)
-                }
-            }
-            .navigationTitle("Nueva Categoría")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") { presentationMode.wrappedValue.dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Guardar") {
-                        let newCategory = TransactionCategory(name: name, subcategories: [], icon: icon, color: color)
-                        onSave(newCategory)
-                        presentationMode.wrappedValue.dismiss()
-                    }
-                    .disabled(name.isEmpty || icon.isEmpty)
-                }
-            }
-        }
     }
 }
 

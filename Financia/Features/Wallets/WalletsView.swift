@@ -6,45 +6,50 @@ struct WalletsView: View {
     @EnvironmentObject var exchangeRateManager: ExchangeRateManager
 
     @State private var isAddingWallet = false
+    @State private var isTransferring = false
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.clear.ignoresSafeArea()
-
-                VStack {
+        NavigationStack {
+            List {
+                Section("Balance total") {
                     TotalBalanceCard(
                         totalBalanceUSD: walletManager.totalBalance(in: .usd),
                         exchangeRateManager: exchangeRateManager
                     )
-                    .padding(.horizontal)
+                }
 
-                    List {
-                        ForEach(walletManager.wallets) { wallet in
-                            WalletRow(
-                                wallet: wallet,
-                                balance: walletManager.calculateBalance(for: wallet),
-                                exchangeRateManager: exchangeRateManager
-                            )
-                        }
-                        .onDelete(perform: deleteWallet)
+                Section("Carteras") {
+                    ForEach(walletManager.wallets) { wallet in
+                        WalletRow(
+                            wallet: wallet,
+                            balance: walletManager.calculateBalance(for: wallet),
+                            exchangeRateManager: exchangeRateManager
+                        )
                     }
-                    .listStyle(InsetGroupedListStyle())
+                    .onDelete(perform: deleteWallet)
                 }
-                .navigationTitle("Carteras")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: { isAddingWallet = true }) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.title2)
-                        }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Carteras")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { isTransferring = true }) {
+                        Image(systemName: "arrow.left.arrow.right")
                     }
                 }
-                .sheet(isPresented: $isAddingWallet) {
-                    AddWalletSheet { newWallet in
-                        walletManager.addWallet(newWallet)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { isAddingWallet = true }) {
+                        Image(systemName: "plus")
                     }
                 }
+            }
+            .sheet(isPresented: $isAddingWallet) {
+                AddWalletSheet { newWallet in
+                    walletManager.addWallet(newWallet)
+                }
+            }
+            .sheet(isPresented: $isTransferring) {
+                TransferView()
             }
         }
     }
@@ -62,10 +67,10 @@ struct TotalBalanceCard: View {
     @ObservedObject var exchangeRateManager: ExchangeRateManager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Balance Total (USD)")
-                    .font(.headline)
+                Text("Balance total (USD)")
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
 
                 Spacer()
@@ -81,19 +86,16 @@ struct TotalBalanceCard: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    Text("Actualizado: \(lastUpdated, style: .relative)")
+                    Text("Actualizado \(lastUpdated, style: .relative)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
             }
 
             Text(totalBalanceUSD, format: .currency(code: "USD"))
-                .font(.system(size: 40, weight: .bold, design: .rounded))
+                .font(.title.bold())
                 .foregroundColor(.primary)
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
     }
 }
 

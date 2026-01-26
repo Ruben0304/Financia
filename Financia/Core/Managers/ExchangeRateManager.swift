@@ -7,6 +7,10 @@ struct ExchangeRateCache: Codable {
     let lastUpdated: Date
 }
 
+struct ManualUsdRateCache: Codable {
+    let usdToCup: Double
+}
+
 // Manager para tasas de cambio con caché local
 class ExchangeRateManager: ObservableObject {
 
@@ -16,14 +20,19 @@ class ExchangeRateManager: ObservableObject {
     @Published var lastUpdated: Date?
     @Published var isLoading: Bool = false
     @Published var error: String?
+    @Published var manualUsdToCupRate: Double? {
+        didSet { saveManualUsdRate() }
+    }
 
     private let persistence = PersistenceManager.shared
     private let cacheFilename = "exchange_rates.json"
+    private let manualUsdRateFilename = "manual_usd_rate.json"
     private let cacheExpirationDays = 1
     private var api: ElToqueAPI?
 
     private init() {
         loadFromCache()
+        loadManualUsdRate()
         checkAndUpdateIfNeeded()
     }
 
@@ -54,6 +63,32 @@ class ExchangeRateManager: ObservableObject {
             try persistence.save(cache, to: cacheFilename)
         } catch {
             print("Error saving exchange rates cache: \(error)")
+        }
+    }
+
+    private func loadManualUsdRate() {
+        guard persistence.fileExists(manualUsdRateFilename) else { return }
+        do {
+            let cache = try persistence.load(from: manualUsdRateFilename, as: ManualUsdRateCache.self)
+            manualUsdToCupRate = cache.usdToCup
+        } catch {
+            print("Error loading manual USD rate: \(error)")
+        }
+    }
+
+    private func saveManualUsdRate() {
+        guard let rate = manualUsdToCupRate, rate > 0 else {
+            if persistence.fileExists(manualUsdRateFilename) {
+                try? persistence.delete(manualUsdRateFilename)
+            }
+            return
+        }
+
+        let cache = ManualUsdRateCache(usdToCup: rate)
+        do {
+            try persistence.save(cache, to: manualUsdRateFilename)
+        } catch {
+            print("Error saving manual USD rate: \(error)")
         }
     }
 
@@ -110,18 +145,32 @@ class ExchangeRateManager: ObservableObject {
         return rates[currency.uppercased()]
     }
 
+    func effectiveUsdToCupRate() -> Double? {
+        if let apiRate = rate(for: "USD"), apiRate > 0 {
+            return apiRate
+        }
+        if let manual = manualUsdToCupRate, manual > 0 {
+            return manual
+        }
+        return nil
+    }
+
+    func updateManualUsdToCupRate(_ rate: Double?) {
+        manualUsdToCupRate = rate
+    }
+
     // Convertir de una moneda a otra
     func convert(amount: Double, from: Currency, to: Currency) -> Double? {
         // Si son la misma moneda, retornar el mismo monto
         guard from != to else { return amount }
 
         // USD a CUP
-        if from == .usd && to == .cup, let rate = rate(for: "USD") {
+        if from == .usd && to == .cup, let rate = effectiveUsdToCupRate() {
             return amount * rate
         }
 
         // CUP a USD
-        if from == .cup && to == .usd, let rate = rate(for: "USD") {
+        if from == .cup && to == .usd, let rate = effectiveUsdToCupRate() {
             return amount / rate
         }
 

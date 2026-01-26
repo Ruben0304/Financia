@@ -41,7 +41,16 @@ class ChatService {
                     }
 
                     guard httpResponse.statusCode == 200 else {
-                        continuation.finish(throwing: ChatAPIError.serverError("Status: \(httpResponse.statusCode)"))
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        if let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: String],
+                           let detail = errorDict["detail"] {
+                            continuation.finish(throwing: ChatAPIError.serverError(detail))
+                        } else {
+                            continuation.finish(throwing: ChatAPIError.serverError("Status: \(httpResponse.statusCode)"))
+                        }
                         return
                     }
 

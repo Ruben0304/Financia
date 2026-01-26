@@ -68,6 +68,8 @@ struct ReceiptReviewView: View {
             }
             .navigationTitle("Registrar vale")
             .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
+            .keyboardDoneToolbar()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") {
@@ -236,12 +238,18 @@ struct ReceiptReviewView: View {
                     }
                 }
 
-                ReceiptCategoryGrid(
-                    selectedTransactionCategory: $selectedTransactionCategory,
+                CategoryGridSelector(
+                    title: "Selecciona categoría",
+                    categories: categoryManager.expenseCategories,
+                    selectedCategory: $selectedTransactionCategory,
                     selectedSubcategory: $selectedSubcategory,
-                    showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
-                    categoryToAddTo: $categoryToAddTo,
-                    isAddingCategory: $isAddingCategory
+                    onAddCategory: {
+                        isAddingCategory = true
+                    },
+                    onAddSubcategory: { category in
+                        categoryToAddTo = category
+                        showingAddSubcategoryAlert = true
+                    }
                 )
             }
         } label: {
@@ -371,118 +379,6 @@ struct ReceiptReviewView: View {
 
 }
 
-private struct ReceiptCategoryGrid: View {
-    @EnvironmentObject var categoryManager: CategoryManager
-    @Binding var selectedTransactionCategory: TransactionCategory?
-    @Binding var selectedSubcategory: Subcategory?
-    @Binding var showingAddSubcategoryAlert: Bool
-    @Binding var categoryToAddTo: TransactionCategory?
-    @Binding var isAddingCategory: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Selecciona categoría")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button(action: { isAddingCategory = true }) {
-                    Label("Nueva", systemImage: "plus.circle.fill")
-                }
-            }
-
-            LazyVGrid(columns: categoryColumns, spacing: 12) {
-                ForEach(categoryManager.expenseCategories) { category in
-                    CategoryCard(
-                        category: category,
-                        selectedTransactionCategory: $selectedTransactionCategory,
-                        selectedSubcategory: $selectedSubcategory,
-                        showingAddSubcategoryAlert: $showingAddSubcategoryAlert,
-                        categoryToAddTo: $categoryToAddTo
-                    )
-                }
-            }
-        }
-    }
-
-    private var categoryColumns: [GridItem] {
-        [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-    }
-}
-
-private struct CategoryCard: View {
-    let category: TransactionCategory
-    @Binding var selectedTransactionCategory: TransactionCategory?
-    @Binding var selectedSubcategory: Subcategory?
-    @Binding var showingAddSubcategoryAlert: Bool
-    @Binding var categoryToAddTo: TransactionCategory?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-            subcategoryGrid
-            addSubcategoryButton
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.systemBackground))
-                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 3)
-        )
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: category.icon)
-                .foregroundColor(category.color)
-            Text(category.name)
-                .font(.subheadline.weight(.semibold))
-            Spacer()
-            if selectedTransactionCategory?.id == category.id {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.accentColor)
-            }
-        }
-    }
-
-    private var subcategoryGrid: some View {
-        LazyVGrid(columns: subcategoryColumns, alignment: .leading, spacing: 6) {
-            ForEach(category.subcategories) { subcategory in
-                subcategoryChip(for: subcategory)
-            }
-        }
-    }
-
-    private func subcategoryChip(for subcategory: Subcategory) -> some View {
-        let isSelected = selectedSubcategory?.id == subcategory.id
-        return Button {
-            selectedSubcategory = subcategory
-            selectedTransactionCategory = category
-        } label: {
-            Text(subcategory.name)
-                .font(.caption)
-                .foregroundColor(isSelected ? .white : .primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(isSelected ? category.color : Color(.systemGray6), in: Capsule())
-        }
-    }
-
-    private var addSubcategoryButton: some View {
-        Button(action: {
-            categoryToAddTo = category
-            showingAddSubcategoryAlert = true
-        }) {
-            Label("Agregar subcategoría", systemImage: "plus")
-                .font(.caption)
-                .foregroundColor(.accentColor)
-        }
-    }
-
-    private var subcategoryColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 80), spacing: 6)]
-    }
-}
-
 private struct ReceiptSubitemRow: View {
     @Binding var item: SubItem
     let onRemove: () -> Void
@@ -521,59 +417,5 @@ private struct ReceiptSubitemRow: View {
                 }
             }
         )
-    }
-}
-
-private struct AddCategoryView: View {
-    @Environment(\.presentationMode) var presentationMode
-    var onSave: (TransactionCategory) -> Void
-
-    @State private var name = ""
-    @State private var icon = "tag.fill"
-    @State private var color = Color.blue
-
-    let iconColumns = [GridItem(.adaptive(minimum: 50))]
-    let sampleIcons = ["cart.fill", "car.fill", "house.fill", "gamecontroller.fill", "bag.fill", "heart.fill", "book.fill", "airplane", "bus.fill", "fuelpump.fill", "gift.fill", "phone.fill", "display", "music.note", "lightbulb.fill"]
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section("Nombre") {
-                    TextField("Nombre de la Categoría", text: $name)
-                }
-
-                Section("Icono") {
-                    LazyVGrid(columns: iconColumns, spacing: 20) {
-                        ForEach(sampleIcons, id: \.self) { sampleIcon in
-                            Image(systemName: sampleIcon)
-                                .font(.title2)
-                                .padding()
-                                .background(icon == sampleIcon ? color.opacity(0.4) : Color.gray.opacity(0.1))
-                                .clipShape(Circle())
-                                .onTapGesture { icon = sampleIcon }
-                        }
-                    }
-                }
-
-                Section("Color") {
-                    ColorPicker("Elige un color", selection: $color)
-                }
-            }
-            .navigationTitle("Nueva Categoría")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") { presentationMode.wrappedValue.dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Guardar") {
-                        let newCategory = TransactionCategory(name: name, subcategories: [], icon: icon, color: color)
-                        onSave(newCategory)
-                        presentationMode.wrappedValue.dismiss()
-                    }
-                    .disabled(name.isEmpty || icon.isEmpty)
-                }
-            }
-        }
     }
 }

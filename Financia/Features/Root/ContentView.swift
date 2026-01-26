@@ -17,7 +17,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            AuroraBackground()
+            Color(.systemBackground)
 
             if isAuthenticated {
                 authenticatedTabs
@@ -66,7 +66,14 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
             .tabItem {
-                Label("General", systemImage: "rectangle.grid.2x2.fill")
+                Label("Inicio", systemImage: "house.fill")
+            }
+
+            NavigationStack {
+                BalanceView()
+            }
+            .tabItem {
+                Label("Balance", systemImage: "chart.bar.xaxis")
             }
 
             WalletsView()
@@ -75,20 +82,10 @@ struct ContentView: View {
             }
 
             NavigationStack {
-                ChatView()
+                ProfileView()
             }
             .tabItem {
-                Label("Asistente", systemImage: "bubble.left.and.bubble.right.fill")
-            }
-
-            PlaceholderTab(
-                title: "Historial",
-                message: "Tu historial de movimientos aparecerá en este espacio."
-            )
-            .padding(.horizontal, 32)
-            .padding(.top, 48)
-            .tabItem {
-                Label("Historial", systemImage: "clock.arrow.circlepath")
+                Label("Perfil", systemImage: "person.crop.circle")
             }
         }
     }
@@ -139,27 +136,6 @@ struct ContentView: View {
             isAuthenticated = true
         }
         errorMessage = nil
-    }
-}
-
-private struct PlaceholderTab: View {
-    let title: String
-    let message: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.system(size: 42, weight: .semibold, design: .rounded))
-                .foregroundStyle(AuroraColors.primaryText)
-
-            Text(message)
-                .font(.title3)
-                .foregroundStyle(AuroraColors.secondaryText)
-                .lineSpacing(3)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

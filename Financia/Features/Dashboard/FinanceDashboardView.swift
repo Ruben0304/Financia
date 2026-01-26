@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 
 struct FinanceDashboardView: View {
     @Binding var selectedRange: DateRange
@@ -9,13 +8,19 @@ struct FinanceDashboardView: View {
 
     @EnvironmentObject var transactionManager: TransactionManager
     @EnvironmentObject var walletManager: WalletManager
-    @EnvironmentObject var exchangeRateManager: ExchangeRateManager
-
+    @EnvironmentObject var categoryManager: CategoryManager
+    @EnvironmentObject var debtManager: DebtManager
     @State private var selectedMovementFilter: MovementFilter = .all
+    @State private var selectedCurrency: Currency = .cup
+    @State private var didSetInitialCurrency: Bool = false
+    @State private var showAssistant: Bool = false
+    @State private var showDebtInfo: Bool = false
+    @State private var repeatErrorMessage: String?
+    @State private var isShowingRepeatError: Bool = false
 
     // Convertir transacciones a FinanceEntry para el gráfico (balance acumulado)
     private var entries: [FinanceEntry] {
-        let allTransactions = transactionManager.transactions.sorted { $0.date < $1.date }
+        let allTransactions = filteredTransactions.sorted { $0.date < $1.date }
         var cumulativeBalance: Double = 0
         return allTransactions.map { transaction in
             let amount = transaction.type == .income ? transaction.amount : -transaction.amount
@@ -35,26 +40,96 @@ struct FinanceDashboardView: View {
         return orderedEntries.filter { $0.date >= start }
     }
 
-    private var currentBalance: Double {
-        walletManager.totalBalance()
+    private var currentBalance: Double { selectedCurrencyBalance }
+    private var selectedCurrencyBalance: Double {
+        let wallets = walletManager.wallets.filter { $0.currency == selectedCurrency }
+        return wallets.reduce(0) { $0 + walletManager.calculateBalance(for: $1) }
+    }
+
+    private var totalDebtForCurrency: Double {
+        debtManager.debts
+            .filter { $0.moneda == selectedCurrency }
+            .reduce(0) { $0 + $1.monto }
+    }
+
+    private var remainingAfterDebt: Double {
+        currentBalance - totalDebtForCurrency
+    }
+
+    private var remainingColor: Color {
+        if totalDebtForCurrency > currentBalance {
+            return Color(red: 0.86, green: 0.33, blue: 0.33)
+        }
+        if currentBalance >= totalDebtForCurrency * 3 {
+            return Color(red: 0.20, green: 0.60, blue: 0.46)
+        }
+        return Color(red: 0.94, green: 0.71, blue: 0.31)
+    }
+
+    private var remainingPercentageText: String {
+        guard currentBalance > 0 else { return "--" }
+        let ratio = (remainingAfterDebt / currentBalance) - 1
+        return ratio.formatted(.percent.precision(.fractionLength(1)))
+    }
+
+    private var filteredTransactions: [Transaction] {
+        transactionManager.transactions.filter { transactionCurrency(for: $0) == selectedCurrency }
+    }
+
+    private func transactionCurrency(for transaction: Transaction) -> Currency? {
+        walletManager.wallet(withId: transaction.walletId)?.currency
+    }
+
+    private var totalIncome: Double {
+        filteredTransactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+    }
+
+    private var totalExpenses: Double {
+        filteredTransactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
     }
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                AuroraBackground().ignoresSafeArea()
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 28) {
-                        VStack(alignment: .leading, spacing: 16) {
-                            balanceHeader(entries: filteredEntries)
-                            portfolioCard(entries: filteredEntries)
+            List {
+                Section("Moneda") {
+                    Picker("Moneda", selection: $selectedCurrency) {
+                        ForEach(Currency.allCases) { currency in
+                            Text(currency.rawValue).tag(currency)
                         }
-                        recentMovementsSection
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 24)
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Resumen") {
+                    summarySection
+                }
+
+                Section("Gastos por categoría") {
+                    expensesPieSection
+                }
+
+                Section("Movimientos recientes") {
+                    movementFilterPicker
+
+                    ForEach(displayedTransactions) { transaction in
+                        transactionRow(for: transaction)
+                    }
                 }
             }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Resumen")
+            .scrollDismissesKeyboard(.interactively)
+            .onAppear {
+                if !didSetInitialCurrency, let firstWallet = walletManager.wallets.first {
+                    selectedCurrency = firstWallet.currency
+                    didSetInitialCurrency = true
+                }
+            }
+            .alert("No se pudo repetir", isPresented: $isShowingRepeatError, actions: {
+                Button("OK", role: .cancel) {}
+            }, message: {
+                Text(repeatErrorMessage ?? "Revisa el saldo de la cartera.")
+            })
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -62,123 +137,118 @@ struct FinanceDashboardView: View {
                         Button("Agregar gasto", action: onAddExpense)
                         Button("Escanear vale", action: onScanReceipt)
                     } label: {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "plus")
                     }
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: {}) {
-                        Image(systemName: "person.circle.fill")
+                    Button {
+                        showAssistant = true
+                    } label: {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
                     }
+                }
+            }
+            .fullScreenCover(isPresented: $showAssistant) {
+                NavigationStack {
+                    ChatView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cerrar") {
+                                    showAssistant = false
+                                }
+                            }
+                        }
                 }
             }
         }
     }
 
-    private func balanceHeader(entries: [FinanceEntry]) -> some View {
+    private var summarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(currentBalance, format: .currency(code: "CUP"))
-                .font(.system(size: 38, weight: .bold, design: .rounded))
-                .foregroundStyle(AuroraColors.primaryText)
+            Text(currentBalance, format: .currency(code: selectedCurrency.rawValue))
+                .font(.largeTitle.bold())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            usdConversionView()
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Ingresos")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(totalIncome, format: .currency(code: selectedCurrency.rawValue))
+                        .font(.subheadline.weight(.semibold))
+                }
 
-            variationSummary(for: entries)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Gastos")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(totalExpenses, format: .currency(code: selectedCurrency.rawValue))
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("Después de deuda: \(remainingAfterDebt.formatted(.currency(code: selectedCurrency.rawValue)))")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(remainingColor)
+                Text(remainingPercentageText)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(remainingColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    .foregroundColor(remainingColor)
+                Button {
+                    showDebtInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Picker("Intervalo", selection: $selectedRange) {
+                ForEach(DateRange.allCases) { range in
+                    Text(range.title).tag(range)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            variationSummary(for: filteredEntries)
+        }
+        .alert("Detalle de deuda", isPresented: $showDebtInfo) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Deuda total: \(totalDebtForCurrency.formatted(.currency(code: selectedCurrency.rawValue)))\nSaldo actual: \(currentBalance.formatted(.currency(code: selectedCurrency.rawValue)))\nRestante: \(remainingAfterDebt.formatted(.currency(code: selectedCurrency.rawValue)))")
         }
     }
 
-    private func portfolioCard(entries: [FinanceEntry]) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack(alignment: .center, spacing: 12) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.78, green: 0.58, blue: 0.98),
-                                Color(red: 0.53, green: 0.36, blue: 0.98)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(.white)
-                    )
+    private var expensesPieSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if expenseSlices.isEmpty {
+                Text("Sin gastos para \(selectedCurrency.rawValue).")
+                    .foregroundStyle(.secondary)
+            } else {
+                PieChartView(slices: expenseSlices)
+                    .frame(height: 220)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Saldo histórico")
-                        .font(.caption.weight(.semibold))
-                        .textCase(.uppercase)
-                        .foregroundStyle(AuroraColors.secondaryText)
-                    
-                }
-
-                Spacer()
-
-                Picker("Intervalo", selection: $selectedRange) {
-                    ForEach(DateRange.allCases) { range in
-                        Text(range.title).tag(range)
+                VStack(spacing: 8) {
+                    ForEach(expenseSlices) { slice in
+                        HStack {
+                            Circle()
+                                .fill(slice.color)
+                                .frame(width: 10, height: 10)
+                            Text(slice.name)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(slice.value, format: .currency(code: selectedCurrency.rawValue))
+                                .font(.caption.weight(.semibold))
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-
-            chartView(entries: entries)
-                .frame(height: 220)
-                .padding(.top, 6)
-
-            HStack {
-                Label {
-                    if let rate = exchangeRateManager.rate(for: "USD") {
-                        Text("USD → CUP \(rate, format: .number.precision(.fractionLength(2)))")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(AuroraColors.primaryText)
-                    } else {
-                        Text("USD → CUP --")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(AuroraColors.primaryText)
-                    }
-                } icon: {
-                    Circle()
-                        .fill(Color(red: 0.49, green: 0.38, blue: 0.96))
-                        .frame(width: 30, height: 30)
-                        .overlay(
-                            Image(systemName: "dollarsign.arrow.circlepath")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(.white)
-                        )
-                }
-
-                Spacer()
-
-                if let lastUpdated = exchangeRateManager.lastUpdated {
-                    Text("Actualizado \(lastUpdated, style: .relative)")
-                        .font(.caption)
-                        .foregroundStyle(AuroraColors.secondaryText)
-                } else {
-                    Text("Sin actualizar")
-                        .font(.caption)
-                        .foregroundStyle(AuroraColors.secondaryText)
                 }
             }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
-                .fill(Color.white.opacity(0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
-                .stroke(Color.white.opacity(0.3))
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 32, y: 18)
     }
 
     @ViewBuilder
@@ -207,59 +277,18 @@ struct FinanceDashboardView: View {
 
                 Text("Últimos \(selectedRange.lengthInDays) días")
                     .font(.caption)
-                    .foregroundStyle(AuroraColors.secondaryText)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private var recentMovementsSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            movementFilterChips
-
-            VStack(spacing: 12) {
-                ForEach(displayedMovements) { movement in
-                    movementRow(for: movement)
-                }
-            }
-        }.padding()
-        .background(
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
-                .fill(Color.white.opacity(0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 36, style: .continuous)
-                .stroke(Color.white.opacity(0.3))
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 32, y: 18)
-    }
-
-    private var movementFilterChips: some View {
-        HStack(spacing: 24) {
+    private var movementFilterPicker: some View {
+        Picker("Filtro", selection: $selectedMovementFilter) {
             ForEach(MovementFilter.allCases) { filter in
-                Button {
-                    selectedMovementFilter = filter
-                } label: {
-                    VStack(spacing: 8) {
-                        Text(filter.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(selectedMovementFilter == filter ? AuroraColors.primaryText : AuroraColors.secondaryText.opacity(0.7))
-
-                        if selectedMovementFilter == filter {
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(Color(red: 0.49, green: 0.32, blue: 0.94))
-                                .frame(height: 3)
-                        } else {
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(Color.clear)
-                                .frame(height: 3)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
+                Text(filter.title).tag(filter)
             }
-
-            Spacer()
         }
+        .pickerStyle(.segmented)
     }
 
     private var quickActions: some View {
@@ -307,7 +336,7 @@ struct FinanceDashboardView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(isEmphasized ? Color.white : AuroraColors.primaryText)
+                    .foregroundStyle(isEmphasized ? Color.white : .primary)
                     .padding(10)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -316,11 +345,11 @@ struct FinanceDashboardView: View {
 
                 Text(title)
                     .font(.headline)
-                    .foregroundStyle(isEmphasized ? Color.white : AuroraColors.primaryText)
+                    .foregroundStyle(isEmphasized ? Color.white : .primary)
 
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundStyle(isEmphasized ? Color.white.opacity(0.85) : AuroraColors.secondaryText)
+                    .foregroundStyle(isEmphasized ? Color.white.opacity(0.85) : .secondary)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -341,332 +370,104 @@ struct FinanceDashboardView: View {
         )
     }
 
-    private func movementRow(for movement: RecentMovement) -> some View {
-        let isPositive = movement.percentageChange >= 0
+    private func transactionRow(for transaction: Transaction) -> some View {
+        let category = categoryFor(transaction)
+        let isIncome = transaction.type == .income
+        let amountText = transaction.amount.formatted(.currency(code: selectedCurrency.rawValue))
+        let signedAmount = isIncome ? "+\(amountText)" : "-\(amountText)"
 
-        return HStack(spacing: 14) {
-            // Icono circular
+        return HStack(spacing: 12) {
             Circle()
-                .fill(movement.iconBackground)
-                .frame(width: 48, height: 48)
+                .fill(category?.color ?? Color(.systemGray4))
+                .frame(width: 42, height: 42)
                 .overlay(
-                    Image(systemName: movement.iconName)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
+                    Image(systemName: category?.icon ?? "tag.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
                 )
 
-            // Nombre y símbolo
-            VStack(alignment: .leading, spacing: 3) {
-                Text(movement.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AuroraColors.primaryText)
-                Text(movement.subtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AuroraColors.secondaryText.opacity(0.8))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transaction.subcategoryName)
+                    .font(.subheadline.weight(.semibold))
+                Text(transaction.description.isEmpty ? transaction.categoryName : transaction.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(transaction.date, style: .date)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            // Mini gráfico
-            miniChart(isPositive: isPositive)
-                .frame(width: 60, height: 30)
-
-            // Precio y porcentaje
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(movement.amount, format: .currency(code: "CUP"))
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(AuroraColors.primaryText)
-
-                HStack(spacing: 4) {
-                    Image(systemName: isPositive ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .bold))
-                    Text(movement.percentageChange, format: .percent.precision(.fractionLength(2)))
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundStyle(isPositive ? Color(red: 0.20, green: 0.60, blue: 0.46) : Color(red: 0.86, green: 0.33, blue: 0.33))
-            }
+            Text(signedAmount)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(isIncome ? Color(red: 0.20, green: 0.60, blue: 0.46) : Color(red: 0.86, green: 0.33, blue: 0.33))
         }
-        .padding(.vertical, 12)
-    }
-
-    @ViewBuilder
-    private func miniChart(isPositive: Bool) -> some View {
-        let color = isPositive ? Color(red: 0.20, green: 0.60, blue: 0.46) : Color(red: 0.86, green: 0.33, blue: 0.33)
-
-        // Generar puntos aleatorios para el mini gráfico
-        let points: [Double] = isPositive
-            ? [0.3, 0.5, 0.4, 0.6, 0.8, 1.0]
-            : [1.0, 0.8, 0.7, 0.5, 0.4, 0.3]
-
-        GeometryReader { geometry in
-            Path { path in
-                let width = geometry.size.width
-                let height = geometry.size.height
-                let stepX = width / CGFloat(points.count - 1)
-
-                for (index, point) in points.enumerated() {
-                    let x = CGFloat(index) * stepX
-                    let y = height - (CGFloat(point) * height)
-
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
+        .padding(.vertical, 6)
+        .contextMenu {
+            Button {
+                repeatTransaction(transaction)
+            } label: {
+                Label("Repetir", systemImage: "arrow.clockwise")
             }
-            .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
         }
     }
 
-    private func chartView(entries: [FinanceEntry]) -> some View {
-        let accent = Color(red: 0.49, green: 0.32, blue: 0.94)
-        let ordered = entries.sorted { $0.date < $1.date }
-
-        return Chart {
-            ForEach(ordered) { entry in
-                AreaMark(
-                    x: .value("Fecha", entry.date),
-                    y: .value("Saldo", entry.value)
-                )
-                .interpolationMethod(.catmullRom)
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [accent.opacity(0.35), accent.opacity(0.05)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-
-                LineMark(
-                    x: .value("Fecha", entry.date),
-                    y: .value("Saldo", entry.value)
-                )
-                .interpolationMethod(.catmullRom)
-                .lineStyle(StrokeStyle(lineWidth: 3.5, lineCap: .round))
-                .foregroundStyle(accent)
-            }
-
-            if let last = ordered.last {
-                PointMark(
-                    x: .value("Fecha", last.date),
-                    y: .value("Saldo", last.value)
-                )
-                .symbol {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 14, height: 14)
-                        .overlay(
-                            Circle()
-                                .stroke(accent, lineWidth: 3)
-                        )
-                }
-                .foregroundStyle(accent)
-            }
-        }
-        .chartLegend(.hidden)
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
-        .chartYScale(domain: .automatic(includesZero: false))
-        .chartPlotStyle { plot in
-            plot
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 16)
-                .padding(.horizontal, 12)
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        }
-    }
-
-    private var displayedMovements: [RecentMovement] {
-        let data: [RecentMovement]
+    private var displayedTransactions: [Transaction] {
+        let base: [Transaction]
         switch selectedMovementFilter {
         case .all:
-            data = recentMovements
+            base = filteredTransactions
         case .incomes:
-            data = incomeMovements
+            base = filteredTransactions.filter { $0.type == .income }
         case .expenses:
-            data = expenseMovements
+            base = filteredTransactions.filter { $0.type == .expense }
         }
-        return data.isEmpty ? placeholderMovements(for: selectedMovementFilter) : data
+        return Array(base.sorted { $0.date > $1.date }.prefix(8))
     }
 
-    private var recentMovements: [RecentMovement] {
-        guard orderedEntries.count > 1 else { return [] }
-        let sorted = orderedEntries
-        var results: [RecentMovement] = []
-        var incomeIndex = 0
-        var expenseIndex = 0
+    private func categoryFor(_ transaction: Transaction) -> TransactionCategory? {
+        if transaction.type == .income {
+            return categoryManager.incomeCategories.first { $0.id == transaction.categoryId }
+        }
+        return categoryManager.expenseCategories.first { $0.id == transaction.categoryId }
+    }
 
-        for (current, previous) in zip(sorted.dropFirst(), sorted) {
-            let delta = current.value - previous.value
-            guard delta != 0 else { continue }
-            let base = abs(previous.value)
-            let ratio = base == 0 ? 0 : abs(delta) / base
-
-            if delta > 0 {
-                let preset = MovementPreset.incomePresets[incomeIndex % MovementPreset.incomePresets.count]
-                results.append(
-                    RecentMovement(
-                        id: current.id,
-                        kind: .income,
-                        title: preset.title,
-                        subtitle: preset.subtitle,
-                        iconName: preset.icon,
-                        iconBackground: preset.color,
-                        amount: delta,
-                        percentageChange: ratio
-                    )
-                )
-                incomeIndex += 1
-            } else {
-                let preset = MovementPreset.expensePresets[expenseIndex % MovementPreset.expensePresets.count]
-                results.append(
-                    RecentMovement(
-                        id: current.id,
-                        kind: .expense,
-                        title: preset.title,
-                        subtitle: preset.subtitle,
-                        iconName: preset.icon,
-                        iconBackground: preset.color,
-                        amount: abs(delta),
-                        percentageChange: -ratio
-                    )
-                )
-                expenseIndex += 1
+    private func repeatTransaction(_ transaction: Transaction) {
+        if transaction.type == .expense {
+            guard let wallet = walletManager.wallet(withId: transaction.walletId) else {
+                showRepeatError("No se encontró la cartera origen.")
+                return
+            }
+            let available = walletManager.calculateBalance(for: wallet)
+            if transaction.amount > available {
+                showRepeatError("El saldo de la cartera no es suficiente.")
+                return
             }
         }
 
-        return Array(results.suffix(6).reversed())
+        let now = Date()
+        let repeated = Transaction(
+            type: transaction.type,
+            amount: transaction.amount,
+            date: now,
+            categoryId: transaction.categoryId,
+            categoryName: transaction.categoryName,
+            subcategoryId: transaction.subcategoryId,
+            subcategoryName: transaction.subcategoryName,
+            description: transaction.description,
+            walletId: transaction.walletId,
+            createdAt: now,
+            lugar: transaction.lugar,
+            subitems: transaction.subitems
+        )
+        transactionManager.addTransaction(repeated)
+        walletManager.syncWalletBalance(for: transaction.walletId)
     }
 
-    private var incomeMovements: [RecentMovement] {
-        recentMovements.filter { $0.kind == .income }
-    }
-
-    private var expenseMovements: [RecentMovement] {
-        recentMovements.filter { $0.kind == .expense }
-    }
-
-    private func placeholderMovements(for filter: MovementFilter) -> [RecentMovement] {
-        switch filter {
-        case .all:
-            let incomes = MovementPreset.incomePresets.enumerated().map { index, preset in
-                RecentMovement(
-                    id: UUID(),
-                    kind: .income,
-                    title: preset.title,
-                    subtitle: preset.subtitle,
-                    iconName: preset.icon,
-                    iconBackground: preset.color,
-                    amount: 420 + Double(index) * 180,
-                    percentageChange: 0.012 + Double(index) * 0.006
-                )
-            }
-            let expenses = MovementPreset.expensePresets.enumerated().map { index, preset in
-                RecentMovement(
-                    id: UUID(),
-                    kind: .expense,
-                    title: preset.title,
-                    subtitle: preset.subtitle,
-                    iconName: preset.icon,
-                    iconBackground: preset.color,
-                    amount: 260 + Double(index) * 90,
-                    percentageChange: -(0.008 + Double(index) * 0.004)
-                )
-            }
-            return (incomes + expenses).shuffled()
-        case .incomes:
-            return MovementPreset.incomePresets.enumerated().map { index, preset in
-                RecentMovement(
-                    id: UUID(),
-                    kind: .income,
-                    title: preset.title,
-                    subtitle: preset.subtitle,
-                    iconName: preset.icon,
-                    iconBackground: preset.color,
-                    amount: 420 + Double(index) * 180,
-                    percentageChange: 0.012 + Double(index) * 0.006
-                )
-            }
-        case .expenses:
-            return MovementPreset.expensePresets.enumerated().map { index, preset in
-                RecentMovement(
-                    id: UUID(),
-                    kind: .expense,
-                    title: preset.title,
-                    subtitle: preset.subtitle,
-                    iconName: preset.icon,
-                    iconBackground: preset.color,
-                    amount: 260 + Double(index) * 90,
-                    percentageChange: -(0.008 + Double(index) * 0.004)
-                )
-            }
-        }
-    }
-
-    private struct RecentMovement: Identifiable {
-        enum Kind {
-            case income
-            case expense
-        }
-
-        let id: UUID
-        let kind: Kind
-        let title: String
-        let subtitle: String
-        let iconName: String
-        let iconBackground: Color
-        let amount: Double
-        let percentageChange: Double
-    }
-
-    private struct MovementPreset {
-        let title: String
-        let subtitle: String
-        let icon: String
-        let color: Color
-
-        static let incomePresets: [MovementPreset] = [
-            MovementPreset(
-                title: "Salario mensual",
-                subtitle: "SAL",
-                icon: "creditcard.fill",
-                color: Color(red: 0.95, green: 0.61, blue: 0.07)  // Naranja
-            ),
-            MovementPreset(
-                title: "Cobro freelance",
-                subtitle: "FRL",
-                icon: "laptopcomputer",
-                color: Color(red: 0.38, green: 0.42, blue: 0.82)  // Azul índigo
-            ),
-            MovementPreset(
-                title: "Dividendos",
-                subtitle: "DIV",
-                icon: "chart.line.uptrend.xyaxis",
-                color: Color(red: 0.70, green: 0.49, blue: 0.86)  // Púrpura
-            )
-        ]
-
-        static let expensePresets: [MovementPreset] = [
-            MovementPreset(
-                title: "Mercado semanal",
-                subtitle: "MER",
-                icon: "cart.fill",
-                color: Color(red: 0.91, green: 0.76, blue: 0.20)  // Amarillo
-            ),
-            MovementPreset(
-                title: "Transporte",
-                subtitle: "TRA",
-                icon: "car.fill",
-                color: Color(red: 0.53, green: 0.62, blue: 0.85)  // Azul grisáceo
-            ),
-            MovementPreset(
-                title: "Entretenimiento",
-                subtitle: "ENT",
-                icon: "popcorn.fill",
-                color: Color(red: 0.26, green: 0.82, blue: 0.76)  // Turquesa
-            )
-        ]
+    private func showRepeatError(_ message: String) {
+        repeatErrorMessage = message
+        isShowingRepeatError = true
     }
 
     private enum MovementFilter: String, CaseIterable, Identifiable {
@@ -702,23 +503,19 @@ struct FinanceDashboardView: View {
         return "minus"
     }
 
-    private func shortDate(for date: Date) -> String {
-        date.formatted(.dateTime.day().month(.abbreviated))
-    }
-
     private func balanceDeltaText(for entries: [FinanceEntry]) -> String {
         guard let firstValue = entries.first?.value, let lastValue = entries.last?.value else {
             return "Sin variación reciente"
         }
         let delta = lastValue - firstValue
-        let formatted = delta.magnitude.formatted(.currency(code: "CUP"))
+        let formatted = delta.magnitude.formatted(.currency(code: selectedCurrency.rawValue))
         let prefix = delta == 0 ? "" : delta > 0 ? "+" : "-"
         return "\(prefix)\(formatted)"
     }
 
     private func balanceDeltaColor(for entries: [FinanceEntry]) -> Color {
         guard let firstValue = entries.first?.value, let lastValue = entries.last?.value else {
-            return AuroraColors.secondaryText
+            return .secondary
         }
         let delta = lastValue - firstValue
         if delta > 0 {
@@ -726,20 +523,80 @@ struct FinanceDashboardView: View {
         } else if delta < 0 {
             return Color(red: 0.86, green: 0.33, blue: 0.33)
         } else {
-            return AuroraColors.secondaryText
+            return .secondary
         }
     }
 
-    private func usdConversionView() -> some View {
-        guard let rate = exchangeRateManager.rate(for: "USD"), rate != 0 else {
-            return Text("≈ --")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AuroraColors.secondaryText)
+    private var expenseSlices: [PieSliceData] {
+        let expenses = filteredTransactions.filter { $0.type == .expense }
+        let grouped = Dictionary(grouping: expenses, by: { $0.categoryId })
+        let slices: [PieSliceData] = grouped.compactMap { key, transactions in
+            let total = transactions.reduce(0) { $0 + $1.amount }
+            guard total > 0 else { return nil as PieSliceData? }
+            let category = categoryManager.expenseCategories.first { $0.id == key }
+            return PieSliceData(
+                name: category?.name ?? "Otros",
+                value: total,
+                color: category?.color ?? Color(.systemGray4)
+            )
         }
+        return slices.sorted { $0.value > $1.value }
+    }
 
-        let usdBalance = currentBalance / rate
-        return Text("≈ \(usdBalance, format: .currency(code: "USD"))")
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(AuroraColors.secondaryText)
+    fileprivate struct PieSliceData: Identifiable {
+        let id = UUID()
+        let name: String
+        let value: Double
+        let color: Color
+    }
+}
+
+private struct PieChartView: View {
+    let slices: [FinanceDashboardView.PieSliceData]
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = min(geometry.size.width, geometry.size.height)
+            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            let radius = size / 2
+            let total = slices.reduce(0) { $0 + $1.value }
+
+            ZStack {
+                ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                    let startAngle = angle(for: slices, index: index, total: total)
+                    let endAngle = angle(for: slices, index: index + 1, total: total)
+                    PieSliceShape(startAngle: startAngle, endAngle: endAngle)
+                        .fill(slice.color)
+                }
+
+                Circle()
+                    .fill(Color(.systemBackground))
+                    .frame(width: radius * 0.6, height: radius * 0.6)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .position(center)
+        }
+    }
+
+    private func angle(for slices: [FinanceDashboardView.PieSliceData], index: Int, total: Double) -> Angle {
+        guard total > 0 else { return .degrees(0) }
+        let sum = slices.prefix(index).reduce(0) { $0 + $1.value }
+        return .degrees((sum / total) * 360.0 - 90)
+    }
+}
+
+private struct PieSliceShape: Shape {
+    let startAngle: Angle
+    let endAngle: Angle
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+
+        path.move(to: center)
+        path.addArc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }
