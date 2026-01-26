@@ -1,222 +1,245 @@
-//
-//  SavingsGoalEditorView.swift
-//  Financia
-//
-//  Created by Claude on 2026-01-26.
-//
-
 import SwiftUI
 import PhotosUI
+import LinkPresentation
 
 struct SavingsGoalEditorView: View {
     @EnvironmentObject var savingsGoalManager: SavingsGoalManager
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.dismiss) private var dismiss
 
     @State private var nombre: String = ""
     @State private var descripcion: String = ""
     @State private var precio: String = ""
     @State private var monedaSeleccionada: Currency = .usd
     @State private var productURL: String = ""
+
+    @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImage: UIImage?
-    @State private var showingImagePicker = false
+
+    @State private var linkPreviewTitle: String?
+    @State private var linkPreviewImage: UIImage?
+    @State private var isFetchingMetadata = false
+    @State private var linkError: String?
+
+    @State private var userEditedName = false
+    @State private var userPickedImage = false
+    @State private var isAutoFillingName = false
+    @State private var metadataTask: Task<Void, Never>?
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                AuroraBackground()
-
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Imagen
-                        imageSectionView
-
-                        // Campos del formulario
-                        VStack(spacing: 16) {
-                            // Nombre
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Nombre de la meta")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(AuroraColors.secondaryText)
-
-                                TextField("Ej: iPhone 15 Pro", text: $nombre)
-                                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                                    .foregroundColor(AuroraColors.primaryText)
-                                    .padding()
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .fill(Color.white.opacity(0.05))
-                                    )
-                            }
-
-                            // Descripción
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Descripción (opcional)")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(AuroraColors.secondaryText)
-
-                                TextField("Ej: Color azul titanio, 256GB", text: $descripcion)
-                                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                                    .foregroundColor(AuroraColors.primaryText)
-                                    .padding()
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .fill(Color.white.opacity(0.05))
-                                    )
-                            }
-
-                            // Precio y Moneda
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Precio objetivo")
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundColor(AuroraColors.secondaryText)
-
-                                    TextField("0.00", text: $precio)
-                                        .font(.system(size: 16, weight: .regular, design: .rounded))
-                                        .foregroundColor(AuroraColors.primaryText)
-                                        .keyboardType(.decimalPad)
-                                        .padding()
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 16)
-                                                .fill(Color.white.opacity(0.05))
-                                        )
-                                }
-
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Moneda")
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundColor(AuroraColors.secondaryText)
-
-                                    Picker("Moneda", selection: $monedaSeleccionada) {
-                                        ForEach([Currency.usd, .eur, .cup], id: \.self) { currency in
-                                            Text(currency.rawValue.uppercased())
-                                                .tag(currency)
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                    .padding()
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .fill(Color.white.opacity(0.05))
-                                    )
-                                    .tint(AuroraColors.primaryText)
-                                }
-                                .frame(width: 100)
-                            }
-
-                            // URL del producto
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Link del producto (opcional)")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundColor(AuroraColors.secondaryText)
-
-                                TextField("https://amazon.com/...", text: $productURL)
-                                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                                    .foregroundColor(AuroraColors.primaryText)
-                                    .keyboardType(.URL)
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                    .padding()
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .fill(Color.white.opacity(0.05))
-                                    )
-                            }
-                        }
-                        .padding(.horizontal, 32)
-
-                        // Botón guardar
-                        Button(action: saveGoal) {
-                            Text("Crear Meta")
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: canSave ? [.blue, .purple] : [.gray, .gray.opacity(0.7)],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
+        NavigationStack {
+            Form {
+                Section("Imagen") {
+                    HStack(spacing: 16) {
+                        if let image = selectedImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 72, height: 72)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                        } else {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color(.systemGray5))
+                                .frame(width: 72, height: 72)
+                                .overlay(
+                                    Image(systemName: "photo")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.secondary)
                                 )
                         }
-                        .disabled(!canSave)
-                        .padding(.horizontal, 32)
-                        .padding(.bottom, 32)
+
+                        PhotosPicker(selection: $selectedItem, matching: .images) {
+                            Text(selectedImage == nil ? "Seleccionar foto" : "Cambiar foto")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .padding(.top, 24)
+                }
+
+                Section("Información") {
+                    TextField("Nombre de la meta", text: $nombre)
+                        .onChange(of: nombre) { _ in
+                            if !isAutoFillingName {
+                                userEditedName = true
+                            }
+                        }
+
+                    TextField("Descripción (opcional)", text: $descripcion)
+                }
+
+                Section("Precio") {
+                    TextField("Precio objetivo", text: $precio)
+                        .keyboardType(.decimalPad)
+
+                    Picker("Moneda", selection: $monedaSeleccionada) {
+                        ForEach(Currency.allCases) { currency in
+                            Text(currency.rawValue).tag(currency)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                Section("Link del producto") {
+                    TextField("https://...", text: $productURL)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onChange(of: productURL) { _ in
+                            scheduleMetadataFetch()
+                        }
+
+                    if isFetchingMetadata {
+                        HStack {
+                            ProgressView()
+                            Text("Buscando datos del link...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let linkError {
+                        Text(linkError)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if let title = linkPreviewTitle {
+                        HStack(spacing: 12) {
+                            if let previewImage = linkPreviewImage {
+                                Image(uiImage: previewImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 44, height: 44)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            } else {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color(.systemGray5))
+                                    .frame(width: 44, height: 44)
+                                    .overlay(
+                                        Image(systemName: "link")
+                                            .foregroundColor(.secondary)
+                                    )
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(2)
+                                Text("Datos detectados")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
             }
-            .navigationTitle("Nueva Meta de Ahorro")
+            .navigationTitle("Nueva meta")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") {
                         dismiss()
                     }
-                    .foregroundColor(AuroraColors.primaryText)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        saveGoal()
+                    }
+                    .disabled(!canSave)
                 }
             }
-            .sheet(isPresented: $showingImagePicker) {
-                ImagePicker(selectedImage: $selectedImage)
-            }
-        }
-    }
-
-    private var imageSectionView: some View {
-        VStack(spacing: 12) {
-            if let image = selectedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 200, height: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 2)
-                    )
-            } else {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.white.opacity(0.05))
-                    .frame(width: 200, height: 200)
-                    .overlay(
-                        VStack(spacing: 8) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 48))
-                                .foregroundColor(AuroraColors.secondaryText.opacity(0.5))
-
-                            Text("Agregar foto")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(AuroraColors.secondaryText)
-                        }
-                    )
-            }
-
-            Button(action: { showingImagePicker = true }) {
-                Text(selectedImage == nil ? "Seleccionar foto" : "Cambiar foto")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(.blue)
+            .scrollDismissesKeyboard(.interactively)
+            .keyboardDoneToolbar()
+            .onChange(of: selectedItem) { newItem in
+                Task {
+                    if let data = try? await newItem?.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        selectedImage = image
+                        userPickedImage = true
+                    }
+                }
             }
         }
     }
 
     private var canSave: Bool {
-        !nombre.isEmpty && Double(precio) ?? 0 > 0
+        guard !nombre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return Double(precio.replacingOccurrences(of: ",", with: ".")) ?? 0 > 0
+    }
+
+    private func scheduleMetadataFetch() {
+        metadataTask?.cancel()
+        let trimmed = productURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            linkPreviewTitle = nil
+            linkPreviewImage = nil
+            linkError = nil
+            isFetchingMetadata = false
+            return
+        }
+
+        metadataTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await MainActor.run {
+                fetchLinkMetadata(for: url)
+            }
+        }
+    }
+
+    private func fetchLinkMetadata(for url: URL) {
+        isFetchingMetadata = true
+        linkError = nil
+        linkPreviewTitle = nil
+        linkPreviewImage = nil
+
+        let provider = LPMetadataProvider()
+        provider.startFetchingMetadata(for: url) { metadata, error in
+            DispatchQueue.main.async {
+                self.isFetchingMetadata = false
+
+                if let _ = error {
+                    self.linkError = "No se pudo leer el link. Puedes completar manualmente."
+                    return
+                }
+
+                guard let metadata else {
+                    self.linkError = "No se encontraron datos en el link."
+                    return
+                }
+
+                if let title = metadata.title, !title.isEmpty {
+                    self.linkPreviewTitle = title
+                    if !self.userEditedName && self.nombre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.isAutoFillingName = true
+                        self.nombre = title
+                        self.isAutoFillingName = false
+                    }
+                }
+
+                let imageProvider = metadata.imageProvider ?? metadata.iconProvider
+                imageProvider?.loadObject(ofClass: UIImage.self) { object, _ in
+                    DispatchQueue.main.async {
+                        if let image = object as? UIImage {
+                            self.linkPreviewImage = image
+                            if !self.userPickedImage && self.selectedImage == nil {
+                                self.selectedImage = image
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func saveGoal() {
         guard canSave else { return }
 
+        let normalizedPrice = Double(precio.replacingOccurrences(of: ",", with: ".")) ?? 0
         let goal = SavingsGoal(
-            nombre: nombre,
-            descripcion: descripcion,
-            precioObjetivo: Double(precio) ?? 0,
+            nombre: nombre.trimmingCharacters(in: .whitespacesAndNewlines),
+            descripcion: descripcion.trimmingCharacters(in: .whitespacesAndNewlines),
+            precioObjetivo: normalizedPrice,
             moneda: monedaSeleccionada,
             imagenData: selectedImage?.jpegData(compressionQuality: 0.7),
-            productURL: productURL.isEmpty ? nil : productURL
+            productURL: productURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : productURL
         )
 
         savingsGoalManager.addSavingsGoal(goal)
@@ -224,51 +247,9 @@ struct SavingsGoalEditorView: View {
     }
 }
 
-// ImagePicker helper
-struct ImagePicker: UIViewControllerRepresentable {
-    @Binding var selectedImage: UIImage?
-    @Environment(\.dismiss) var dismiss
-
-    func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 1
-
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: ImagePicker
-
-        init(_ parent: ImagePicker) {
-            self.parent = parent
-        }
-
-        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            parent.dismiss()
-
-            guard let provider = results.first?.itemProvider else { return }
-
-            if provider.canLoadObject(ofClass: UIImage.self) {
-                provider.loadObject(ofClass: UIImage.self) { image, _ in
-                    DispatchQueue.main.async {
-                        self.parent.selectedImage = image as? UIImage
-                    }
-                }
-            }
-        }
-    }
-}
-
 #Preview {
-    SavingsGoalEditorView()
-        .environmentObject(SavingsGoalManager.shared)
+    NavigationStack {
+        SavingsGoalEditorView()
+            .environmentObject(SavingsGoalManager.shared)
+    }
 }

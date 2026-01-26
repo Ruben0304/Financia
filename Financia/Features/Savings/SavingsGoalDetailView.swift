@@ -1,373 +1,273 @@
-//
-//  SavingsGoalDetailView.swift
-//  Financia
-//
-//  Created by Claude on 2026-01-26.
-//
-
 import SwiftUI
 import LinkPresentation
 
 struct SavingsGoalDetailView: View {
     @EnvironmentObject var savingsGoalManager: SavingsGoalManager
     @EnvironmentObject var walletManager: WalletManager
-    @Environment(\.dismiss) var dismiss
 
     let goal: SavingsGoal
 
     @State private var showingAddContribution = false
+
+    private var currentGoal: SavingsGoal {
+        savingsGoalManager.savingsGoals.first(where: { $0.id == goal.id }) ?? goal
+    }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(spacing: 16) {
+                    if let imageData = currentGoal.imagenData,
+                       let uiImage = UIImage(data: imageData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 220)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                    } else if let urlString = currentGoal.productURL,
+                              let url = URL(string: urlString) {
+                        LinkPreviewView(url: url)
+                            .frame(height: 220)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                    }
+
+                    VStack(spacing: 6) {
+                        Text(currentGoal.nombre)
+                            .font(.title2.weight(.semibold))
+                            .multilineTextAlignment(.center)
+
+                        if !currentGoal.descripcion.isEmpty {
+                            Text(currentGoal.descripcion)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+
+            Section("Progreso") {
+                VStack(spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Ahorrado")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(currentGoal.ahorrado, format: .currency(code: currentGoal.moneda.rawValue))
+                                .font(.headline)
+                        }
+
+                        Spacer()
+
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Meta")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(currentGoal.precioObjetivo, format: .currency(code: currentGoal.moneda.rawValue))
+                                .font(.headline)
+                        }
+                    }
+
+                    ProgressView(value: currentGoal.porcentajeCompletado, total: 100)
+                        .tint(currentGoal.alcanzado ? Color(red: 0.20, green: 0.60, blue: 0.46) : .blue)
+
+                    HStack {
+                        Text("\(Int(currentGoal.porcentajeCompletado))% completado")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        if currentGoal.alcanzado {
+                            Text("Meta alcanzada")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(Color(red: 0.20, green: 0.60, blue: 0.46))
+                        } else {
+                            Text("Faltan \(currentGoal.montoPendiente.formatted(.currency(code: currentGoal.moneda.rawValue)))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            if !currentGoal.alcanzado {
+                Section {
+                    Button {
+                        showingAddContribution = true
+                    } label: {
+                        Label("Agregar dinero", systemImage: "plus.circle.fill")
+                    }
+                }
+            }
+
+            if let link = currentGoal.productURL,
+               let url = URL(string: link) {
+                Section("Link") {
+                    Link(destination: url) {
+                        Text(link)
+                            .font(.footnote)
+                            .foregroundColor(.blue)
+                            .lineLimit(2)
+                    }
+                }
+            }
+
+            if !currentGoal.contribuciones.isEmpty {
+                Section("Historial de aportes") {
+                    ForEach(currentGoal.contribuciones.sorted { $0.fecha > $1.fecha }) { contribution in
+                        ContributionRow(contribution: contribution, currency: currentGoal.moneda)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Meta de ahorro")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingAddContribution) {
+            AddContributionSheet(goal: currentGoal)
+                .environmentObject(savingsGoalManager)
+                .environmentObject(walletManager)
+        }
+    }
+}
+
+private struct AddContributionSheet: View {
+    @EnvironmentObject var savingsGoalManager: SavingsGoalManager
+    @EnvironmentObject var walletManager: WalletManager
+    @Environment(\.dismiss) private var dismiss
+
+    let goal: SavingsGoal
+
     @State private var contributionAmount: String = ""
     @State private var selectedWallet: Wallet?
     @State private var contributionNote: String = ""
+    @State private var showError = false
+    @State private var errorMessage = ""
 
     var body: some View {
-        ZStack {
-            AuroraBackground()
-
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(AuroraColors.primaryText)
-                    }
-
-                    Spacer()
-
-                    Button(action: { /* TODO: Edit */ }) {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 20))
-                            .foregroundColor(AuroraColors.primaryText)
-                    }
+        NavigationStack {
+            Form {
+                Section("Monto") {
+                    TextField("0.00", text: $contributionAmount)
+                        .keyboardType(.decimalPad)
                 }
-                .padding(.horizontal, 32)
-                .padding(.top, 48)
-                .padding(.bottom, 24)
 
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Imagen o preview de URL
-                        if let imageData = goal.imagenData,
-                           let uiImage = UIImage(data: imageData) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(height: 250)
-                                .clipShape(RoundedRectangle(cornerRadius: 24))
-                                .padding(.horizontal, 32)
-                        } else if let urlString = goal.productURL,
-                                  let url = URL(string: urlString) {
-                            LinkPreviewView(url: url)
-                                .frame(height: 250)
-                                .padding(.horizontal, 32)
-                        }
-
-                        // Información principal
-                        VStack(spacing: 12) {
-                            Text(goal.nombre)
-                                .font(.system(size: 32, weight: .bold, design: .rounded))
-                                .foregroundColor(AuroraColors.primaryText)
-                                .multilineTextAlignment(.center)
-
-                            if !goal.descripcion.isEmpty {
-                                Text(goal.descripcion)
-                                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                                    .foregroundColor(AuroraColors.secondaryText)
-                                    .multilineTextAlignment(.center)
-                            }
-                        }
-                        .padding(.horizontal, 32)
-
-                        // Progreso
-                        progressCardView
-
-                        // Botón agregar contribución
-                        if !goal.alcanzado {
-                            Button(action: { showingAddContribution = true }) {
-                                HStack {
-                                    Image(systemName: "plus.circle.fill")
-                                    Text("Agregar dinero")
-                                }
-                                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [.blue, .purple],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
-                                )
-                            }
-                            .padding(.horizontal, 32)
-                        }
-
-                        // Historial de contribuciones
-                        if !goal.contribuciones.isEmpty {
-                            contributionsListView
+                Section("Cartera") {
+                    Picker("Cartera", selection: $selectedWallet) {
+                        ForEach(walletManager.wallets.filter { $0.currency == goal.moneda }) { wallet in
+                            Text(wallet.name).tag(wallet as Wallet?)
                         }
                     }
-                    .padding(.bottom, 32)
-                }
-            }
-        }
-        .navigationBarHidden(true)
-        .sheet(isPresented: $showingAddContribution) {
-            addContributionSheet
-        }
-        .onAppear {
-            selectedWallet = walletManager.wallets.first { $0.currency == goal.moneda }
-        }
-    }
-
-    private var progressCardView: some View {
-        VStack(spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Ahorrado")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(AuroraColors.secondaryText)
-
-                    Text("\(goal.moneda.symbol)\(String(format: "%.2f", goal.ahorrado))")
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(goal.alcanzado ? .green : AuroraColors.primaryText)
+                    .pickerStyle(.menu)
                 }
 
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Meta")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(AuroraColors.secondaryText)
-
-                    Text("\(goal.moneda.symbol)\(String(format: "%.2f", goal.precioObjetivo))")
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(AuroraColors.primaryText)
+                Section("Nota") {
+                    TextField("Opcional", text: $contributionNote)
                 }
             }
-
-            // Barra de progreso
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.1))
-                        .frame(height: 16)
-
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: goal.alcanzado ? [.green, .green.opacity(0.7)] : [.blue, .purple],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: geometry.size.width * (goal.porcentajeCompletado / 100), height: 16)
-                }
-            }
-            .frame(height: 16)
-
-            HStack {
-                Text("\(Int(goal.porcentajeCompletado))% completado")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(AuroraColors.secondaryText)
-
-                Spacer()
-
-                if !goal.alcanzado {
-                    Text("Faltan \(goal.moneda.symbol)\(String(format: "%.2f", goal.montoPendiente))")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(AuroraColors.secondaryText)
-                } else {
-                    Text("¡Meta alcanzada!")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.green)
-                }
-            }
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Color.white.opacity(0.05))
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
-        )
-        .padding(.horizontal, 32)
-    }
-
-    private var contributionsListView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Historial de aportes")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundColor(AuroraColors.primaryText)
-                .padding(.horizontal, 32)
-
-            ForEach(goal.contribuciones.reversed()) { contribution in
-                ContributionRow(contribution: contribution)
-            }
-            .padding(.horizontal, 32)
-        }
-    }
-
-    private var addContributionSheet: some View {
-        NavigationView {
-            ZStack {
-                AuroraBackground()
-
-                VStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Monto a agregar")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(AuroraColors.secondaryText)
-
-                        TextField("0.00", text: $contributionAmount)
-                            .font(.system(size: 16, weight: .regular, design: .rounded))
-                            .foregroundColor(AuroraColors.primaryText)
-                            .keyboardType(.decimalPad)
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.white.opacity(0.05))
-                            )
+            .navigationTitle("Agregar dinero")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") {
+                        dismiss()
                     }
-
-                    if let wallet = selectedWallet {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Desde la cartera")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundColor(AuroraColors.secondaryText)
-
-                            Picker("Cartera", selection: $selectedWallet) {
-                                ForEach(walletManager.wallets.filter { $0.currency == goal.moneda }) { wallet in
-                                    Text("\(wallet.name) (\(wallet.currency.symbol)\(String(format: "%.2f", wallet.balance)))")
-                                        .tag(wallet as Wallet?)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.white.opacity(0.05))
-                            )
-                            .tint(AuroraColors.primaryText)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Nota (opcional)")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(AuroraColors.secondaryText)
-
-                        TextField("Ej: Aporte del mes", text: $contributionNote)
-                            .font(.system(size: 16, weight: .regular, design: .rounded))
-                            .foregroundColor(AuroraColors.primaryText)
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.white.opacity(0.05))
-                            )
-                    }
-
-                    Spacer()
-
-                    Button(action: saveContribution) {
-                        Text("Agregar")
-                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: canSaveContribution ? [.blue, .purple] : [.gray, .gray.opacity(0.7)],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                            )
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        saveContribution()
                     }
                     .disabled(!canSaveContribution)
                 }
-                .padding(32)
             }
-            .navigationTitle("Agregar Dinero")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancelar") {
-                        showingAddContribution = false
-                    }
-                    .foregroundColor(AuroraColors.primaryText)
-                }
+            .alert("No se pudo guardar", isPresented: $showError, actions: {
+                Button("OK", role: .cancel) {}
+            }, message: {
+                Text(errorMessage)
+            })
+            .scrollDismissesKeyboard(.interactively)
+            .keyboardDoneToolbar()
+            .onAppear {
+                selectedWallet = walletManager.wallets.first { $0.currency == goal.moneda }
             }
         }
     }
 
     private var canSaveContribution: Bool {
-        guard let amount = Double(contributionAmount), amount > 0,
+        guard let amount = parseAmount(contributionAmount), amount > 0,
               let wallet = selectedWallet else {
             return false
         }
-        return wallet.balance >= amount
+        return walletManager.calculateBalance(for: wallet) >= amount
     }
 
     private func saveContribution() {
-        guard canSaveContribution,
-              let amount = Double(contributionAmount),
-              let wallet = selectedWallet else {
+        guard let amount = parseAmount(contributionAmount), amount > 0 else {
+            showErrorMessage("Ingresa un monto válido.")
+            return
+        }
+        guard let wallet = selectedWallet else {
+            showErrorMessage("Selecciona una cartera.")
+            return
+        }
+        let available = walletManager.calculateBalance(for: wallet)
+        guard available >= amount else {
+            showErrorMessage("El saldo de la cartera no es suficiente.")
             return
         }
 
         let contribution = SavingsContribution(
             monto: amount,
             walletId: wallet.id,
-            nota: contributionNote.isEmpty ? nil : contributionNote
+            nota: contributionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : contributionNote
         )
 
         savingsGoalManager.addContribution(to: goal.id, contribution: contribution)
-        showingAddContribution = false
-        contributionAmount = ""
-        contributionNote = ""
         dismiss()
+    }
+
+    private func parseAmount(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        return Double(normalized)
+    }
+
+    private func showErrorMessage(_ message: String) {
+        errorMessage = message
+        showError = true
     }
 }
 
-struct ContributionRow: View {
+private struct ContributionRow: View {
     let contribution: SavingsContribution
+    let currency: Currency
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(contribution.fecha, style: .date)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(AuroraColors.primaryText)
-
+                    .font(.subheadline.weight(.semibold))
                 if let nota = contribution.nota {
                     Text(nota)
-                        .font(.system(size: 12, weight: .regular, design: .rounded))
-                        .foregroundColor(AuroraColors.secondaryText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
 
             Spacer()
 
-            Text("+\(String(format: "%.2f", contribution.monto))")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundColor(.green)
+            Text(contribution.monto, format: .currency(code: currency.rawValue))
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(Color(red: 0.20, green: 0.60, blue: 0.46))
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.05))
-        )
+        .padding(.vertical, 4)
     }
 }
 
-// LinkPresentation View para preview estilo iMessage
+// LinkPresentation View para preview
 struct LinkPreviewView: UIViewRepresentable {
     let url: URL
 
@@ -375,8 +275,8 @@ struct LinkPreviewView: UIViewRepresentable {
         let linkView = LPLinkView(url: url)
         let provider = LPMetadataProvider()
 
-        provider.startFetchingMetadata(for: url) { metadata, error in
-            if let metadata = metadata {
+        provider.startFetchingMetadata(for: url) { metadata, _ in
+            if let metadata {
                 DispatchQueue.main.async {
                     linkView.metadata = metadata
                 }
@@ -390,15 +290,16 @@ struct LinkPreviewView: UIViewRepresentable {
 }
 
 #Preview {
-    let goal = SavingsGoal(
-        nombre: "iPhone 15 Pro",
-        descripcion: "Color azul titanio, 256GB",
-        precioObjetivo: 1200,
-        moneda: .usd,
-        ahorrado: 350
-    )
-
-    return SavingsGoalDetailView(goal: goal)
-        .environmentObject(SavingsGoalManager.shared)
-        .environmentObject(WalletManager.shared)
+    NavigationStack {
+        let goal = SavingsGoal(
+            nombre: "iPhone 15 Pro",
+            descripcion: "Color azul titanio, 256GB",
+            precioObjetivo: 1200,
+            moneda: .usd,
+            ahorrado: 350
+        )
+        SavingsGoalDetailView(goal: goal)
+            .environmentObject(SavingsGoalManager.shared)
+            .environmentObject(WalletManager.shared)
+    }
 }

@@ -3,7 +3,7 @@ import AuthenticationServices
 import Combine
 
 struct ContentView: View {
-    @State private var isAuthenticated = false
+    @State private var isAuthenticated = true
     @State private var errorMessage: String?
     @State private var selectedRange: DateRange = .month
     @State private var entrySheetKind: FinanceEntryFlow?

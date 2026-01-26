@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct WalletsView: View {
     @EnvironmentObject var walletManager: WalletManager

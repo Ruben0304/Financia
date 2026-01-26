@@ -6,13 +6,14 @@
 //
 
 import Foundation
+import Combine
 
 class SavingsGoalManager: ObservableObject {
     static let shared = SavingsGoalManager()
 
     @Published var savingsGoals: [SavingsGoal] = []
-    private let persistenceManager = PersistenceManager.shared
-    private let fileName = "savings_goals.json"
+    private let persistence = PersistenceManager.shared
+    private let filename = "savings_goals.json"
 
     private init() {
         loadSavingsGoals()
@@ -21,11 +22,25 @@ class SavingsGoalManager: ObservableObject {
     // MARK: - Persistence
 
     func loadSavingsGoals() {
-        savingsGoals = persistenceManager.load(fileName: fileName) ?? []
+        guard persistence.fileExists(filename) else {
+            savingsGoals = []
+            return
+        }
+
+        do {
+            savingsGoals = try persistence.load(from: filename, as: [SavingsGoal].self)
+        } catch {
+            print("Error loading savings goals: \(error)")
+            savingsGoals = []
+        }
     }
 
     private func save() {
-        persistenceManager.save(savingsGoals, fileName: fileName)
+        do {
+            try persistence.save(savingsGoals, to: filename)
+        } catch {
+            print("Error saving savings goals: \(error)")
+        }
     }
 
     // MARK: - CRUD Operations

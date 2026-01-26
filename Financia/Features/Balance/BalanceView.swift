@@ -262,7 +262,7 @@ struct BalanceView: View {
             let total = items.reduce(0) { $0 + $1.amount }
             return (currency, total)
         }
-        return totals.sorted { $0.currency.rawValue < $1.currency.rawValue }
+        return totals.sorted { $0.0.rawValue < $1.0.rawValue }
     }
 
     private func totalsDebtsByCurrency() -> [(currency: Currency, total: Double)] {
@@ -271,7 +271,7 @@ struct BalanceView: View {
             let total = debts.reduce(0) { $0 + $1.monto }
             return (currency, total)
         }
-        .sorted { $0.currency.rawValue < $1.currency.rawValue }
+        .sorted { $0.0.rawValue < $1.0.rawValue }
     }
 
     private func transactionCurrency(for transaction: Transaction) -> Currency? {
