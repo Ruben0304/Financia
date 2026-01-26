@@ -3,11 +3,26 @@ import Charts
 
 struct FinanceDashboardView: View {
     @Binding var selectedRange: DateRange
-    let entries: [FinanceEntry]
-    let usdToCupRate: Double
     var onAddIncome: () -> Void = {}
     var onAddExpense: () -> Void = {}
+    var onScanReceipt: () -> Void = {}
+
+    @EnvironmentObject var transactionManager: TransactionManager
+    @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var exchangeRateManager: ExchangeRateManager
+
     @State private var selectedMovementFilter: MovementFilter = .all
+
+    // Convertir transacciones a FinanceEntry para el gráfico (balance acumulado)
+    private var entries: [FinanceEntry] {
+        let allTransactions = transactionManager.transactions.sorted { $0.date < $1.date }
+        var cumulativeBalance: Double = 0
+        return allTransactions.map { transaction in
+            let amount = transaction.type == .income ? transaction.amount : -transaction.amount
+            cumulativeBalance += amount
+            return FinanceEntry(date: transaction.date, value: cumulativeBalance)
+        }
+    }
 
     private var orderedEntries: [FinanceEntry] {
         entries.sorted { $0.date < $1.date }
@@ -21,7 +36,7 @@ struct FinanceDashboardView: View {
     }
 
     private var currentBalance: Double {
-        orderedEntries.last?.value ?? 0
+        walletManager.totalBalance()
     }
 
     var body: some View {
@@ -45,6 +60,7 @@ struct FinanceDashboardView: View {
                     Menu {
                         Button("Agregar ingreso", action: onAddIncome)
                         Button("Agregar gasto", action: onAddExpense)
+                        Button("Escanear vale", action: onScanReceipt)
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
@@ -119,9 +135,15 @@ struct FinanceDashboardView: View {
 
             HStack {
                 Label {
-                    Text("USD → CUP \(usdToCupRate, format: .number.precision(.fractionLength(2)))")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(AuroraColors.primaryText)
+                    if let rate = exchangeRateManager.rate(for: "USD") {
+                        Text("USD → CUP \(rate, format: .number.precision(.fractionLength(2)))")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(AuroraColors.primaryText)
+                    } else {
+                        Text("USD → CUP --")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(AuroraColors.primaryText)
+                    }
                 } icon: {
                     Circle()
                         .fill(Color(red: 0.49, green: 0.38, blue: 0.96))
@@ -135,9 +157,15 @@ struct FinanceDashboardView: View {
 
                 Spacer()
 
-                Text("Actualizado hoy")
-                    .font(.caption)
-                    .foregroundStyle(AuroraColors.secondaryText)
+                if let lastUpdated = exchangeRateManager.lastUpdated {
+                    Text("Actualizado \(lastUpdated, style: .relative)")
+                        .font(.caption)
+                        .foregroundStyle(AuroraColors.secondaryText)
+                } else {
+                    Text("Sin actualizar")
+                        .font(.caption)
+                        .foregroundStyle(AuroraColors.secondaryText)
+                }
             }
         }
         .padding(24)
@@ -703,8 +731,14 @@ struct FinanceDashboardView: View {
     }
 
     private func usdConversionView() -> some View {
-        let usdBalance = currentBalance / usdToCupRate
-        return Text("≈ \(usdBalance.formatted(.currency(code: "USD")))")
+        guard let rate = exchangeRateManager.rate(for: "USD"), rate != 0 else {
+            return Text("≈ --")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(AuroraColors.secondaryText)
+        }
+
+        let usdBalance = currentBalance / rate
+        return Text("≈ \(usdBalance, format: .currency(code: "USD"))")
             .font(.subheadline.weight(.medium))
             .foregroundStyle(AuroraColors.secondaryText)
     }

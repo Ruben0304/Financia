@@ -6,11 +6,14 @@ struct ContentView: View {
     @State private var isAuthenticated = false
     @State private var errorMessage: String?
     @State private var selectedRange: DateRange = .month
-    @State private var financeEntries: [FinanceEntry] = FinanceEntry.sampleHistory
-    @State private var usdToCupRate: Double = 24.37
     @State private var entrySheetKind: FinanceEntryFlow?
+    @State private var isReceiptScannerPresented = false
+    @State private var receiptReviewData: ReceiptReviewData?
 
-    private let api = ElToqueAPI(token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2MzE0NzIzNywianRpIjoiMGEwNmMzZTktOTMyZC00NTEyLWJiNTEtYzZiMzM5MzU2NzZhIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjY5MGY3NGQxZTkyYmU3N2VhMzhkNDM5NiIsIm5iZiI6MTc2MzE0NzIzNywiZXhwIjoxNzk0NjgzMjM3fQ.qTb0NhE9ErbBx6XsVjLxiNja3W7WwvnJiTYKXZ2E75o")
+    @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var transactionManager: TransactionManager
+    @EnvironmentObject var categoryManager: CategoryManager
+    @EnvironmentObject var exchangeRateManager: ExchangeRateManager
 
     var body: some View {
         ZStack {
@@ -40,9 +43,16 @@ struct ContentView: View {
             }
             .presentationDragIndicator(.visible)
         }
-        .onAppear(perform: fetchRate)
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            fetchRate()
+        .sheet(isPresented: $isReceiptScannerPresented) {
+            ReceiptScannerView { extraction in
+                receiptReviewData = ReceiptReviewData(extraction: extraction)
+                isReceiptScannerPresented = false
+            }
+        }
+        .sheet(item: $receiptReviewData, onDismiss: {
+            receiptReviewData = nil
+        }) { data in
+            ReceiptReviewView(data: data)
         }
     }
 
@@ -50,19 +60,25 @@ struct ContentView: View {
         TabView {
             FinanceDashboardView(
                 selectedRange: $selectedRange,
-                entries: financeEntries,
-                usdToCupRate: usdToCupRate,
                 onAddIncome: handleIncome,
-                onAddExpense: handleExpense
+                onAddExpense: handleExpense,
+                onScanReceipt: handleScanReceipt
             )
             .ignoresSafeArea()
             .tabItem {
                 Label("General", systemImage: "rectangle.grid.2x2.fill")
             }
 
-            WalletsView(usdToCupRate: $usdToCupRate)
+            WalletsView()
             .tabItem {
                 Label("Carteras", systemImage: "wallet.pass")
+            }
+
+            NavigationStack {
+                ChatView()
+            }
+            .tabItem {
+                Label("Asistente", systemImage: "bubble.left.and.bubble.right.fill")
             }
 
             PlaceholderTab(
@@ -105,12 +121,13 @@ struct ContentView: View {
         entrySheetKind = .expense
     }
 
+    private func handleScanReceipt() {
+        isReceiptScannerPresented = true
+    }
+
     private func handleNewEntry(_ result: FinanceEntrySheetResult) {
-        let signedAmount = result.kind == .income ? result.amount : -result.amount
-        let currentBalance = financeEntries.last?.value ?? 0
-        let updatedBalance = currentBalance + signedAmount
-        let newEntry = FinanceEntry(date: Date(), value: updatedBalance)
-        financeEntries.append(newEntry)
+        // La transacción ya fue guardada en AddEntrySheet
+        // Aquí podríamos agregar lógica adicional si es necesario
     }
 
     private func skipLogin() {
@@ -122,21 +139,6 @@ struct ContentView: View {
             isAuthenticated = true
         }
         errorMessage = nil
-    }
-
-    private func fetchRate() {
-        api.fetchTasas { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let tasasDict):
-                    if let rate = tasasDict["USD"] {
-                        self.usdToCupRate = rate
-                    }
-                case .failure(let error):
-                    print("Error fetching rates: \(error.localizedDescription)")
-                }
-            }
-        }
     }
 }
 

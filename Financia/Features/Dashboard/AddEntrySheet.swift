@@ -20,49 +20,66 @@ struct FinanceEntrySheetResult {
     let category: String // This will now hold "Category - Description"
 }
 
+struct ReceiptPrefill {
+    let amount: Double
+    let date: Date
+    let description: String
+    let lugar: Lugar?
+    let subitems: [SubItem]
+    let currencyCode: String?
+}
+
 struct AddEntrySheet: View {
-    
+
     // MARK: - Properties
-    
+
     @Environment(\.presentationMode) var presentationMode
-    
+    @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var transactionManager: TransactionManager
+    @EnvironmentObject var categoryManager: CategoryManager
+
     let kind: FinanceEntryFlow
+    let prefill: ReceiptPrefill?
+    let allowsEntryTypeToggle: Bool
+    let autoSelectWallet: Bool
+    let autoSelectCategory: Bool
     let onCompletion: (FinanceEntrySheetResult) -> Void
     
     // UI State
     @State private var amount: Double = 0
     @State private var transactionDate: Date = .now
-    @State private var description: String = "" // New state for description
+    @State private var description: String = ""
+    @State private var placeName: String = ""
+    @State private var receiptLugar: Lugar?
+    @State private var receiptSubitems: [SubItem] = []
     @State private var selectedEntryType: FinanceEntryFlow
-    
+    @State private var selectedWallet: Wallet?
+    @State private var didInitialize: Bool = false
+
     // Category State
-    @State private var incomeTransactionCategories: [TransactionCategory]
-    @State private var expenseTransactionCategories: [TransactionCategory]
     @State private var selectedTransactionCategory: TransactionCategory?
     @State private var selectedSubcategory: Subcategory?
     @State private var showingAddSubcategoryAlert = false
     @State private var newSubcategoryName = ""
     @State private var categoryToAddTo: TransactionCategory?
-    @State private var isAddingCategory = false // State to show AddCategoryView
+    @State private var isAddingCategory = false
 
     // Initializer
-    init(kind: FinanceEntryFlow, onCompletion: @escaping (FinanceEntrySheetResult) -> Void) {
+    init(
+        kind: FinanceEntryFlow,
+        prefill: ReceiptPrefill? = nil,
+        allowsEntryTypeToggle: Bool = true,
+        autoSelectWallet: Bool = true,
+        autoSelectCategory: Bool = true,
+        onCompletion: @escaping (FinanceEntrySheetResult) -> Void
+    ) {
         self.kind = kind
+        self.prefill = prefill
+        self.allowsEntryTypeToggle = allowsEntryTypeToggle
+        self.autoSelectWallet = autoSelectWallet
+        self.autoSelectCategory = autoSelectCategory
         self.onCompletion = onCompletion
-        
-        // Set initial state based on the 'kind' passed from ContentView
         _selectedEntryType = State(initialValue: kind)
-        
-        _incomeTransactionCategories = State(initialValue: CategoriesData.incomeCategories)
-        _expenseTransactionCategories = State(initialValue: CategoriesData.expenseCategories)
-        
-        if kind == .income {
-            _selectedTransactionCategory = State(initialValue: CategoriesData.incomeCategories.first)
-            _selectedSubcategory = State(initialValue: CategoriesData.incomeCategories.first?.subcategories.first)
-        } else {
-            _selectedTransactionCategory = State(initialValue: CategoriesData.expenseCategories.first)
-            _selectedSubcategory = State(initialValue: CategoriesData.expenseCategories.first?.subcategories.first)
-        }
     }
     
     // MARK: - Body
@@ -77,14 +94,12 @@ struct AddEntrySheet: View {
                 detailsSheet
             }
         }
+        .onAppear {
+            initializeIfNeeded()
+        }
         .onChange(of: selectedEntryType) { newType in
-            if newType == .income {
-                selectedTransactionCategory = incomeTransactionCategories.first
-                selectedSubcategory = incomeTransactionCategories.first?.subcategories.first
-            } else {
-                selectedTransactionCategory = expenseTransactionCategories.first
-                selectedSubcategory = expenseTransactionCategories.first?.subcategories.first
-            }
+            guard autoSelectCategory else { return }
+            setDefaultCategory(for: newType)
         }
         .alert("Nueva Subcategoría", isPresented: $showingAddSubcategoryAlert) {
             TextField("Nombre", text: $newSubcategoryName)
@@ -101,9 +116,9 @@ struct AddEntrySheet: View {
         .sheet(isPresented: $isAddingCategory) {
             AddCategoryView { newCategory in
                 if selectedEntryType == .income {
-                    incomeTransactionCategories.append(newCategory)
+                    categoryManager.addIncomeCategory(newCategory)
                 } else {
-                    expenseTransactionCategories.append(newCategory)
+                    categoryManager.addExpenseCategory(newCategory)
                 }
                 selectedTransactionCategory = newCategory
                 selectedSubcategory = newCategory.subcategories.first
@@ -146,15 +161,51 @@ struct AddEntrySheet: View {
 
     private var detailsSheet: some View {
         VStack(spacing: 16) {
-            Picker("Tipo de transacción", selection: $selectedEntryType) {
-                Text("Gasto").tag(FinanceEntryFlow.expense)
-                Text("Ingreso").tag(FinanceEntryFlow.income)
+            if allowsEntryTypeToggle {
+                Picker("Tipo de transacción", selection: $selectedEntryType) {
+                    Text("Gasto").tag(FinanceEntryFlow.expense)
+                    Text("Ingreso").tag(FinanceEntryFlow.income)
+                }
+                .pickerStyle(.segmented)
+            } else {
+                Text("Gasto")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
             }
-            .pickerStyle(.segmented)
-            
+
+            // Wallet Selector
+            if !walletManager.wallets.isEmpty {
+                Menu {
+                    ForEach(walletManager.wallets) { wallet in
+                        Button(action: { selectedWallet = wallet }) {
+                            HStack {
+                                Image(systemName: wallet.icon)
+                                Text("\(wallet.name) (\(wallet.currency.symbol))")
+                                if selectedWallet?.id == wallet.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: selectedWallet?.icon ?? "wallet.pass")
+                            .foregroundColor(selectedWallet?.color ?? .blue)
+                        Text(selectedWallet?.name ?? "Seleccionar Cartera")
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+
             CategorySelectionView(
-                incomeCategories: $incomeTransactionCategories,
-                expenseCategories: $expenseTransactionCategories,
                 selectedEntryType: $selectedEntryType,
                 selectedTransactionCategory: $selectedTransactionCategory,
                 selectedSubcategory: $selectedSubcategory,
@@ -162,9 +213,20 @@ struct AddEntrySheet: View {
                 categoryToAddTo: $categoryToAddTo,
                 isAddingCategory: $isAddingCategory
             )
-            
-            // New Description and Date Section
+
+            if prefill != nil {
+                receiptDetailsSection
+            }
+
+            // Description and Date Section
             VStack(spacing: 10) {
+                if prefill != nil {
+                    TextField("Lugar (opcional)", text: $placeName)
+                        .padding(.horizontal)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+
                 TextField("Descripción (ej. Almuerzo con amigos)", text: $description)
                     .padding(.horizontal)
                     .padding(.vertical, 12)
@@ -177,7 +239,7 @@ struct AddEntrySheet: View {
             }
 
             saveButton
-            
+
             Spacer()
         }
         .padding(.horizontal, 24)
@@ -200,32 +262,63 @@ struct AddEntrySheet: View {
                 .shadow(color: .purple.opacity(0.4), radius: 10, y: 5)
         }
         .padding(.top)
-        .disabled(amount <= 0 || selectedSubcategory == nil)
-        .opacity(amount <= 0 || selectedSubcategory == nil ? 0.6 : 1.0)
+        .disabled(amount <= 0 || selectedSubcategory == nil || selectedWallet == nil)
+        .opacity(amount <= 0 || selectedSubcategory == nil || selectedWallet == nil ? 0.6 : 1.0)
     }
 
     // MARK: - Functions
     
     private func addSubcategory(to category: TransactionCategory, with name: String) {
         let newSubcategory = Subcategory(name: name)
-        if selectedEntryType == .income {
-            if let index = incomeTransactionCategories.firstIndex(where: { $0.id == category.id }) {
-                incomeTransactionCategories[index].subcategories.append(newSubcategory)
-            }
-        } else {
-            if let index = expenseTransactionCategories.firstIndex(where: { $0.id == category.id }) {
-                expenseTransactionCategories[index].subcategories.append(newSubcategory)
-            }
-        }
-        selectedSubcategory = newSubcategory // Automatically select the newly added subcategory
-        selectedTransactionCategory = category // Ensure the parent category is also selected
+        let isIncome = selectedEntryType == .income
+        categoryManager.addSubcategory(newSubcategory, to: category, isIncome: isIncome)
+        selectedSubcategory = newSubcategory
+        selectedTransactionCategory = category
     }
 
     private func handleSave() {
-        guard let finalSubcategory = selectedSubcategory else { return }
+        guard let finalSubcategory = selectedSubcategory,
+              let finalCategory = selectedTransactionCategory,
+              let finalWallet = selectedWallet else { return }
 
+        let trimmedPlace = placeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalLugar: Lugar? = trimmedPlace.isEmpty ? nil : Lugar(
+            id: receiptLugar?.id ?? UUID(),
+            nombre: trimmedPlace,
+            visualKeywords: receiptLugar?.visualKeywords
+        )
+
+        let cleanedSubitems = receiptSubitems.compactMap { item -> SubItem? in
+            let name = item.nombre.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            return SubItem(
+                id: item.id,
+                nombre: name,
+                cantidad: max(1, item.cantidad),
+                precio: item.precio
+            )
+        }
+
+        // Crear transacción persistente
+        let transaction = Transaction(
+            type: selectedEntryType == .income ? .income : .expense,
+            amount: amount,
+            date: transactionDate,
+            categoryId: finalCategory.id,
+            categoryName: finalCategory.name,
+            subcategoryId: finalSubcategory.id,
+            subcategoryName: finalSubcategory.name,
+            description: description,
+            walletId: finalWallet.id,
+            lugar: finalLugar,
+            subitems: cleanedSubitems.isEmpty ? nil : cleanedSubitems
+        )
+
+        // Guardar en TransactionManager
+        transactionManager.addTransaction(transaction)
+
+        // Notificar completion (para compatibilidad)
         let categoryAndDescription = description.isEmpty ? finalSubcategory.name : "\(finalSubcategory.name) - \(description)"
-        
         let result = FinanceEntrySheetResult(
             amount: amount,
             kind: selectedEntryType,
@@ -234,13 +327,84 @@ struct AddEntrySheet: View {
         onCompletion(result)
         presentationMode.wrappedValue.dismiss()
     }
+
+    private func initializeIfNeeded() {
+        guard !didInitialize else { return }
+        didInitialize = true
+
+        if autoSelectWallet {
+            selectedWallet = walletManager.wallets.first
+        }
+
+        if autoSelectCategory {
+            setDefaultCategory(for: selectedEntryType)
+        } else {
+            selectedTransactionCategory = nil
+            selectedSubcategory = nil
+        }
+
+        guard let prefill = prefill else { return }
+        amount = prefill.amount
+        transactionDate = prefill.date
+        description = prefill.description
+        receiptLugar = prefill.lugar
+        placeName = prefill.lugar?.nombre ?? ""
+        receiptSubitems = prefill.subitems
+
+    }
+
+    private func setDefaultCategory(for type: FinanceEntryFlow) {
+        if type == .income {
+            selectedTransactionCategory = categoryManager.incomeCategories.first
+            selectedSubcategory = categoryManager.incomeCategories.first?.subcategories.first
+        } else {
+            selectedTransactionCategory = categoryManager.expenseCategories.first
+            selectedSubcategory = categoryManager.expenseCategories.first?.subcategories.first
+        }
+    }
+
+    private var receiptDetailsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Items del vale")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    receiptSubitems.append(SubItem(nombre: "", cantidad: 1, precio: nil))
+                } label: {
+                    Label("Agregar", systemImage: "plus")
+                }
+            }
+
+            if let currencyCode = prefill?.currencyCode {
+                Text("Moneda detectada: \(currencyCode)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if receiptSubitems.isEmpty {
+                Text("No hay items detectados todavía.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(receiptSubitems.indices, id: \.self) { index in
+                    let itemId = receiptSubitems[index].id
+                    ReceiptSubitemRow(item: $receiptSubitems[index]) {
+                        receiptSubitems.removeAll { $0.id == itemId }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
 }
 
 // MARK: - CategorySelectionView
 
 private struct CategorySelectionView: View {
-    @Binding var incomeCategories: [TransactionCategory]
-    @Binding var expenseCategories: [TransactionCategory]
+    @EnvironmentObject var categoryManager: CategoryManager
     @Binding var selectedEntryType: FinanceEntryFlow
     @Binding var selectedTransactionCategory: TransactionCategory?
     @Binding var selectedSubcategory: Subcategory?
@@ -255,8 +419,8 @@ private struct CategorySelectionView: View {
                     Label("Añadir Categoría", systemImage: "plus")
                 }
                 .padding(.horizontal)
-                
-                ForEach(selectedEntryType == .income ? incomeCategories : expenseCategories) { category in
+
+                ForEach(selectedEntryType == .income ? categoryManager.incomeCategories : categoryManager.expenseCategories) { category in
                     DisclosureGroup(
                         isExpanded: Binding(
                             get: { selectedTransactionCategory?.id == category.id },
@@ -385,6 +549,46 @@ private struct AddCategoryView: View {
     }
 }
 
+private struct ReceiptSubitemRow: View {
+    @Binding var item: SubItem
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                TextField("Item", text: $item.nombre)
+                Button(role: .destructive, action: onRemove) {
+                    Image(systemName: "trash")
+                }
+            }
+
+            Stepper("Cantidad: \(item.cantidad)", value: $item.cantidad, in: 1...99)
+
+            TextField("Precio (opcional)", text: priceBinding)
+                .keyboardType(.decimalPad)
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var priceBinding: Binding<String> {
+        Binding<String>(
+            get: {
+                guard let price = item.precio else { return "" }
+                return String(format: "%.2f", price)
+            },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    item.precio = nil
+                } else {
+                    let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+                    item.precio = Double(normalized)
+                }
+            }
+        )
+    }
+}
 
 struct AddEntrySheet_Previews: PreviewProvider {
     static var previews: some View {

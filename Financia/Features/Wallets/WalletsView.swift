@@ -1,28 +1,31 @@
 import SwiftUI
 
 struct WalletsView: View {
-    @StateObject private var viewModel: WalletsViewModel
-    @State private var isAddingWallet = false
-    
-    @Binding var usdToCupRate: Double
+    @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var transactionManager: TransactionManager
+    @EnvironmentObject var exchangeRateManager: ExchangeRateManager
 
-    init(usdToCupRate: Binding<Double>) {
-        _usdToCupRate = usdToCupRate
-        _viewModel = StateObject(wrappedValue: WalletsViewModel(usdToCupRate: usdToCupRate.wrappedValue))
-    }
+    @State private var isAddingWallet = false
 
     var body: some View {
         NavigationView {
             ZStack {
-                Color.clear.ignoresSafeArea() // Use a clear background to show the Aurora effect from ContentView
-                
+                Color.clear.ignoresSafeArea()
+
                 VStack {
-                    TotalBalanceCard(totalBalanceUSD: viewModel.totalBalanceInUSD)
-                        .padding(.horizontal)
+                    TotalBalanceCard(
+                        totalBalanceUSD: walletManager.totalBalance(in: .usd),
+                        exchangeRateManager: exchangeRateManager
+                    )
+                    .padding(.horizontal)
 
                     List {
-                        ForEach(viewModel.wallets) { wallet in
-                            WalletRow(wallet: wallet, viewModel: viewModel)
+                        ForEach(walletManager.wallets) { wallet in
+                            WalletRow(
+                                wallet: wallet,
+                                balance: walletManager.calculateBalance(for: wallet),
+                                exchangeRateManager: exchangeRateManager
+                            )
                         }
                         .onDelete(perform: deleteWallet)
                     }
@@ -39,30 +42,51 @@ struct WalletsView: View {
                 }
                 .sheet(isPresented: $isAddingWallet) {
                     AddWalletSheet { newWallet in
-                        viewModel.addWallet(newWallet)
+                        walletManager.addWallet(newWallet)
                     }
-                }
-                .onChange(of: usdToCupRate) { newRate in
-                    viewModel.usdToCupRate = newRate
                 }
             }
         }
     }
 
     private func deleteWallet(at offsets: IndexSet) {
-        viewModel.wallets.remove(atOffsets: offsets)
+        offsets.forEach { index in
+            let wallet = walletManager.wallets[index]
+            walletManager.deleteWallet(wallet)
+        }
     }
 }
 
 struct TotalBalanceCard: View {
     let totalBalanceUSD: Double
+    @ObservedObject var exchangeRateManager: ExchangeRateManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Balance Total (USD)")
-                .font(.headline)
-                .foregroundColor(.secondary)
-            
+            HStack {
+                Text("Balance Total (USD)")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                if exchangeRateManager.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else if let lastUpdated = exchangeRateManager.lastUpdated {
+                    Button(action: {
+                        exchangeRateManager.refreshRates()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Text("Actualizado: \(lastUpdated, style: .relative)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             Text(totalBalanceUSD, format: .currency(code: "USD"))
                 .font(.system(size: 40, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
@@ -75,7 +99,8 @@ struct TotalBalanceCard: View {
 
 struct WalletRow: View {
     let wallet: Wallet
-    @ObservedObject var viewModel: WalletsViewModel
+    let balance: Double
+    @ObservedObject var exchangeRateManager: ExchangeRateManager
 
     var body: some View {
         HStack {
@@ -87,16 +112,22 @@ struct WalletRow: View {
             VStack(alignment: .leading) {
                 Text(wallet.name)
                     .font(.headline)
-                Text(wallet.balance, format: .currency(code: wallet.currency.rawValue))
+                Text(balance, format: .currency(code: wallet.currency.rawValue))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            Text(viewModel.convertToUSD(amount: wallet.balance, from: wallet.currency), format: .currency(code: "USD"))
-                .font(.headline)
-                .foregroundColor(wallet.color)
+            if let usdAmount = exchangeRateManager.convert(amount: balance, from: wallet.currency, to: .usd) {
+                Text(usdAmount, format: .currency(code: "USD"))
+                    .font(.headline)
+                    .foregroundColor(wallet.color)
+            } else {
+                Text("--")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding(.vertical, 8)
     }
@@ -104,6 +135,9 @@ struct WalletRow: View {
 
 struct WalletsView_Previews: PreviewProvider {
     static var previews: some View {
-        WalletsView(usdToCupRate: .constant(24.37))
+        WalletsView()
+            .environmentObject(WalletManager.shared)
+            .environmentObject(TransactionManager.shared)
+            .environmentObject(ExchangeRateManager.shared)
     }
 }
