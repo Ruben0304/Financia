@@ -22,6 +22,9 @@ struct BalanceView: View {
             VStack(spacing: 16) {
                 pickerCard
                 statsCard
+                if selectedTab == .deudas {
+                    debtsCard
+                }
                 linksCard
             }
             .padding()
@@ -177,9 +180,9 @@ struct BalanceView: View {
                         .foregroundColor(.primary)
                 }
                 NavigationLink {
-                    HistoryView(filter: .debt)
+                    DebtHistoryView()
                 } label: {
-                    Label("Ver historial de pagos", systemImage: "clock.arrow.circlepath")
+                    Label("Ver deudas pagadas", systemImage: "clock.arrow.circlepath")
                         .foregroundColor(.primary)
                 }
             }
@@ -250,7 +253,7 @@ struct BalanceView: View {
         case .gastos:
             return transactionManager.transactions.filter { $0.type == .expense }.count
         case .deudas:
-            return debtManager.debts.count
+            return activeDebts.count
         }
     }
 
@@ -266,12 +269,74 @@ struct BalanceView: View {
     }
 
     private func totalsDebtsByCurrency() -> [(currency: Currency, total: Double)] {
-        let grouped = Dictionary(grouping: debtManager.debts, by: { $0.moneda })
+        let grouped = Dictionary(grouping: activeDebts, by: { $0.moneda })
         return grouped.map { currency, debts in
             let total = debts.reduce(0) { $0 + $1.monto }
             return (currency, total)
         }
         .sorted { $0.0.rawValue < $1.0.rawValue }
+    }
+
+    private var activeDebts: [Debt] {
+        debtManager.debts
+            .filter { $0.monto > 0 }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var debtsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Deudas sin pagar")
+                    .font(.headline)
+                Spacer()
+                Text("\(activeDebts.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+
+            if activeDebts.isEmpty {
+                Text("No hay deudas pendientes.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(activeDebts) { debt in
+                    NavigationLink {
+                        DebtDetailView(debt: debt)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(statColor.opacity(0.18))
+                                .frame(width: 34, height: 34)
+                                .overlay(
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(statColor)
+                                )
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(debt.nombre)
+                                    .font(.subheadline.weight(.semibold))
+                                if !debt.motivo.isEmpty {
+                                    Text(debt.motivo)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Text(debt.monto, format: .currency(code: debt.moneda.rawValue))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(statColor)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    if debt.id != activeDebts.last?.id {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.black.opacity(0.05), radius: 6, y: 3)
     }
 
     private func transactionCurrency(for transaction: Transaction) -> Currency? {

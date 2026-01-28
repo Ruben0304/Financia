@@ -17,6 +17,7 @@ struct FinanceDashboardView: View {
     @State private var showDebtInfo: Bool = false
     @State private var repeatErrorMessage: String?
     @State private var isShowingRepeatError: Bool = false
+    @State private var selectedHomeTab: HomeTab = .home
 
     // Convertir transacciones a FinanceEntry para el gráfico (balance acumulado)
     private var entries: [FinanceEntry] {
@@ -66,12 +67,6 @@ struct FinanceDashboardView: View {
         return Color(red: 0.94, green: 0.71, blue: 0.31)
     }
 
-    private var remainingPercentageText: String {
-        guard currentBalance > 0 else { return "--" }
-        let ratio = (remainingAfterDebt / currentBalance) - 1
-        return ratio.formatted(.percent.precision(.fractionLength(1)))
-    }
-
     private var filteredTransactions: [Transaction] {
         transactionManager.transactions.filter { transactionCurrency(for: $0) == selectedCurrency }
     }
@@ -90,35 +85,24 @@ struct FinanceDashboardView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Moneda") {
-                    Picker("Moneda", selection: $selectedCurrency) {
-                        ForEach(Currency.allCases) { currency in
-                            Text(currency.rawValue).tag(currency)
-                        }
+            ZStack {
+                DashboardBackground()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        homeTabs
+                        balanceCard
+                        actionRow
+                        highlightCard
+                        expensesCard
+                        movementsCard
                     }
-                    .pickerStyle(.segmented)
-                }
-
-                Section("Resumen") {
-                    summarySection
-                }
-
-                Section("Gastos por categoría") {
-                    expensesPieSection
-                }
-
-                Section("Movimientos recientes") {
-                    movementFilterPicker
-
-                    ForEach(displayedTransactions) { transaction in
-                        transactionRow(for: transaction)
-                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
                 }
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Resumen")
-            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Inicio")
             .onAppear {
                 if !didSetInitialCurrency, let firstWallet = walletManager.wallets.first {
                     selectedCurrency = firstWallet.currency
@@ -164,58 +148,86 @@ struct FinanceDashboardView: View {
         }
     }
 
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var homeTabs: some View {
+        HStack(spacing: 10) {
+            ForEach(HomeTab.allCases) { tab in
+                Button {
+                    selectedHomeTab = tab
+                } label: {
+                    Text(tab.title)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(selectedHomeTab == tab ? Color.white : Color.white.opacity(0.6))
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 14)
+                        .background(
+                            Capsule()
+                                .fill(selectedHomeTab == tab ? dashboardAccent.opacity(0.25) : Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
+
+    private var balanceCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Saldo total")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.white.opacity(0.7))
+                Spacer()
+                currencyPills
+            }
+
             Text(currentBalance, format: .currency(code: selectedCurrency.rawValue))
-                .font(.largeTitle.bold())
+                .font(.system(size: 36, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
+                deltaBadge
+                variationSummary(for: filteredEntries)
+            }
+
+            HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Ingresos")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.white.opacity(0.6))
                     Text(totalIncome, format: .currency(code: selectedCurrency.rawValue))
-                        .font(.subheadline.weight(.semibold))
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
                 }
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Gastos")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.white.opacity(0.6))
                     Text(totalExpenses, format: .currency(code: selectedCurrency.rawValue))
-                        .font(.subheadline.weight(.semibold))
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
                 }
-            }
-
-            HStack(spacing: 8) {
-                Text("Después de deuda: \(remainingAfterDebt.formatted(.currency(code: selectedCurrency.rawValue)))")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(remainingColor)
-                Text(remainingPercentageText)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(remainingColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
-                    .foregroundColor(remainingColor)
+                Spacer()
                 Button {
                     showDebtInfo = true
                 } label: {
-                    Image(systemName: "info.circle")
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Disponible")
+                            .font(.caption)
+                            .foregroundStyle(Color.white.opacity(0.6))
+                        Text(remainingAfterDebt, format: .currency(code: selectedCurrency.rawValue))
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(remainingColor)
+                    }
                 }
+                .buttonStyle(.plain)
             }
 
-            Picker("Intervalo", selection: $selectedRange) {
-                ForEach(DateRange.allCases) { range in
-                    Text(range.title).tag(range)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            variationSummary(for: filteredEntries)
+            rangePills
         }
+        .padding(18)
+        .background(cardSurface)
         .alert("Detalle de deuda", isPresented: $showDebtInfo) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -223,151 +235,234 @@ struct FinanceDashboardView: View {
         }
     }
 
-    private var expensesPieSection: some View {
+    private var actionRow: some View {
+        HStack(spacing: 18) {
+            actionButton(title: "Ingreso", icon: "arrow.down.left", action: onAddIncome)
+            actionButton(title: "Gasto", icon: "arrow.up.right", action: onAddExpense)
+            actionButton(title: "Escanear", icon: "viewfinder", action: onScanReceipt)
+            actionButton(title: "Asistente", icon: "sparkles", action: { showAssistant = true })
+        }
+    }
+
+    private var highlightCard: some View {
         VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Plan inteligente")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text("7 días")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+            }
+
+            Text("Ajusta gastos y alcanza tu meta mensual")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+
+            Text("Recibe alertas sobre categorías con mayor variación.")
+                .font(.caption)
+                .foregroundStyle(Color.white.opacity(0.65))
+
+            Button(action: {}) {
+                Text("Ver recomendaciones")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(dashboardAccent)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .background(cardSurface)
+    }
+
+    private var expensesCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Gastos por categoría")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+
             if expenseSlices.isEmpty {
                 Text("Sin gastos para \(selectedCurrency.rawValue).")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.white.opacity(0.6))
             } else {
-                PieChartView(slices: expenseSlices)
-                    .frame(height: 220)
+                PieChartView(slices: expenseSlices, centerColor: dashboardSurface)
+                    .frame(height: 200)
 
-                VStack(spacing: 8) {
-                    ForEach(expenseSlices) { slice in
-                        HStack {
+                VStack(spacing: 10) {
+                    ForEach(expenseSlices.prefix(4)) { slice in
+                        HStack(spacing: 10) {
                             Circle()
                                 .fill(slice.color)
                                 .frame(width: 10, height: 10)
                             Text(slice.name)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.white.opacity(0.7))
                             Spacer()
                             Text(slice.value, format: .currency(code: selectedCurrency.rawValue))
                                 .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white)
                         }
                     }
                 }
             }
         }
+        .padding(18)
+        .background(cardSurface)
     }
 
-    @ViewBuilder
-    private func variationSummary(for entries: [FinanceEntry]) -> some View {
-        let deltaText = balanceDeltaText(for: entries)
-        let percentage = balanceDeltaPercentage(for: entries)
-        let color = balanceDeltaColor(for: entries)
-        let symbol = balanceDeltaSymbol(for: entries)
-        let hasReference = entries.count > 1 && entries.first?.value != 0
-        HStack(spacing: 12) {
+    private var movementsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Movimientos recientes")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Spacer()
+                movementFilterPills
+            }
+
+            if displayedTransactions.isEmpty {
+                Text("Aún no hay movimientos para esta moneda.")
+                    .font(.caption)
+                    .foregroundStyle(Color.white.opacity(0.6))
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(displayedTransactions) { transaction in
+                        transactionRow(for: transaction)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .background(cardSurface)
+    }
+
+    private var currencyPills: some View {
+        HStack(spacing: 6) {
+            ForEach(Currency.allCases) { currency in
+                Button {
+                    selectedCurrency = currency
+                } label: {
+                    Text(currency.rawValue)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(selectedCurrency == currency ? .white : Color.white.opacity(0.55))
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .background(
+                            Capsule()
+                                .fill(selectedCurrency == currency ? dashboardAccent.opacity(0.35) : Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var rangePills: some View {
+        HStack(spacing: 8) {
+            ForEach(DateRange.allCases) { range in
+                Button {
+                    selectedRange = range
+                } label: {
+                    Text(range.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(selectedRange == range ? .white : Color.white.opacity(0.55))
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .background(
+                            Capsule()
+                                .fill(selectedRange == range ? dashboardAccent.opacity(0.35) : Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var movementFilterPills: some View {
+        HStack(spacing: 6) {
+            ForEach(MovementFilter.allCases) { filter in
+                Button {
+                    selectedMovementFilter = filter
+                } label: {
+                    Text(filter.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(selectedMovementFilter == filter ? .white : Color.white.opacity(0.55))
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .background(
+                            Capsule()
+                                .fill(selectedMovementFilter == filter ? dashboardAccent.opacity(0.35) : Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var deltaBadge: some View {
+        let deltaText = balanceDeltaText(for: filteredEntries)
+        let percentage = balanceDeltaPercentage(for: filteredEntries)
+        let color = balanceDeltaColor(for: filteredEntries)
+        let symbol = balanceDeltaSymbol(for: filteredEntries)
+        let hasReference = filteredEntries.count > 1 && filteredEntries.first?.value != 0
+        return HStack(spacing: 6) {
             Image(systemName: symbol)
                 .font(.caption.bold())
-                .foregroundStyle(color)
-                .padding(8)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                if hasReference {
-                    Text("\(deltaText) (\(percentage.formatted(.percent.precision(.fractionLength(2)))))")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(color)
-                } else {
-                    Text(deltaText)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(color)
-                }
-
-                Text("Últimos \(selectedRange.lengthInDays) días")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(hasReference ? "\(deltaText) (\(percentage.formatted(.percent.precision(.fractionLength(1)))))" : deltaText)
+                .font(.caption.weight(.semibold))
         }
-    }
-
-    private var movementFilterPicker: some View {
-        Picker("Filtro", selection: $selectedMovementFilter) {
-            ForEach(MovementFilter.allCases) { filter in
-                Text(filter.title).tag(filter)
-            }
-        }
-        .pickerStyle(.segmented)
-    }
-
-    private var quickActions: some View {
-        HStack(spacing: 14) {
-            quickActionButton(
-                title: "Agregar ingreso",
-                subtitle: "Deposita al instante",
-                icon: "arrow.down.left.circle.fill",
-                isEmphasized: false,
-                action: onAddIncome
-            )
-
-            quickActionButton(
-                title: "Registrar gasto",
-                subtitle: "Controla tu flujo",
-                icon: "arrow.up.right.circle.fill",
-                isEmphasized: true,
-                action: onAddExpense
-            )
-        }
-    }
-
-    private func quickActionButton(
-        title: String,
-        subtitle: String,
-        icon: String,
-        isEmphasized: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        let backgroundGradient = LinearGradient(
-            colors: isEmphasized
-                ? [
-                    Color(red: 0.74, green: 0.44, blue: 0.99),
-                    Color(red: 0.45, green: 0.34, blue: 0.98)
-                ]
-                : [
-                    Color.white.opacity(0.55),
-                    Color.white.opacity(0.55)
-                ],
-            startPoint: .leading,
-            endPoint: .trailing
+        .foregroundStyle(color)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            Capsule()
+                .fill(color.opacity(0.18))
         )
+    }
 
-        return Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(isEmphasized ? Color.white : .primary)
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.white.opacity(isEmphasized ? 0.25 : 0.35))
+    private var cardSurface: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(dashboardSurface)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+    }
+
+    private func actionButton(title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [dashboardAccent, dashboardAccent.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
+                    .frame(width: 48, height: 48)
+                    .overlay(
+                        Image(systemName: icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+                    .shadow(color: dashboardAccent.opacity(0.35), radius: 10, y: 6)
 
                 Text(title)
-                    .font(.headline)
-                    .foregroundStyle(isEmphasized ? Color.white : .primary)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(isEmphasized ? Color.white.opacity(0.85) : .secondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .fill(backgroundGradient)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .stroke(Color.white.opacity(0.25), lineWidth: 1)
-            )
         }
         .buttonStyle(.plain)
-        .shadow(
-            color: isEmphasized ? Color(red: 0.58, green: 0.43, blue: 0.95).opacity(0.35) : Color.black.opacity(0.05),
-            radius: isEmphasized ? 20 : 12,
-            y: isEmphasized ? 14 : 8
-        )
     }
 
     private func transactionRow(for transaction: Transaction) -> some View {
@@ -389,19 +484,20 @@ struct FinanceDashboardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(transaction.subcategoryName)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
                 Text(transaction.description.isEmpty ? transaction.categoryName : transaction.description)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color.white.opacity(0.6))
                 Text(transaction.date, style: .date)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color.white.opacity(0.45))
             }
 
             Spacer()
 
             Text(signedAmount)
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(isIncome ? Color(red: 0.20, green: 0.60, blue: 0.46) : Color(red: 0.86, green: 0.33, blue: 0.33))
+                .foregroundColor(isIncome ? Color(red: 0.20, green: 0.82, blue: 0.62) : Color(red: 0.96, green: 0.46, blue: 0.46))
         }
         .padding(.vertical, 6)
         .contextMenu {
@@ -411,6 +507,14 @@ struct FinanceDashboardView: View {
                 Label("Repetir", systemImage: "arrow.clockwise")
             }
         }
+    }
+
+    private func variationSummary(for entries: [FinanceEntry]) -> some View {
+        let hasReference = entries.count > 1 && entries.first?.value != 0
+        let text = hasReference ? "Últimos \(selectedRange.lengthInDays) días" : "Sin variación reciente"
+        return Text(text)
+            .font(.caption)
+            .foregroundStyle(Color.white.opacity(0.6))
     }
 
     private var displayedTransactions: [Transaction] {
@@ -549,10 +653,32 @@ struct FinanceDashboardView: View {
         let value: Double
         let color: Color
     }
+
+    private enum HomeTab: String, CaseIterable, Identifiable {
+        case home
+        case budgets
+        case goals
+        case wallets
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .home: return "Home"
+            case .budgets: return "Presupuestos"
+            case .goals: return "Metas"
+            case .wallets: return "Carteras"
+            }
+        }
+    }
+
+    private let dashboardSurface = Color(red: 0.07, green: 0.10, blue: 0.18)
+    private let dashboardAccent = Color(red: 0.10, green: 0.55, blue: 1.0)
 }
 
 private struct PieChartView: View {
     let slices: [FinanceDashboardView.PieSliceData]
+    let centerColor: Color
 
     var body: some View {
         GeometryReader { geometry in
@@ -570,7 +696,7 @@ private struct PieChartView: View {
                 }
 
                 Circle()
-                    .fill(Color(.systemBackground))
+                    .fill(centerColor)
                     .frame(width: radius * 0.6, height: radius * 0.6)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -598,5 +724,46 @@ private struct PieSliceShape: Shape {
         path.addArc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: false)
         path.closeSubpath()
         return path
+    }
+}
+
+private struct DashboardBackground: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.04, green: 0.06, blue: 0.12),
+                    Color(red: 0.05, green: 0.08, blue: 0.16),
+                    Color(red: 0.07, green: 0.10, blue: 0.20)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            RadialGradient(
+                colors: [Color(red: 0.15, green: 0.28, blue: 0.55).opacity(0.35), Color.clear],
+                center: .topLeading,
+                startRadius: 40,
+                endRadius: 320
+            )
+            .offset(x: -60, y: -120)
+
+            RadialGradient(
+                colors: [Color(red: 0.12, green: 0.45, blue: 0.80).opacity(0.25), Color.clear],
+                center: .bottomTrailing,
+                startRadius: 30,
+                endRadius: 300
+            )
+            .offset(x: 100, y: 80)
+
+            Group {
+                Circle().fill(Color.white.opacity(0.25)).frame(width: 2, height: 2).offset(x: -120, y: -220)
+                Circle().fill(Color.white.opacity(0.18)).frame(width: 3, height: 3).offset(x: 140, y: -180)
+                Circle().fill(Color.white.opacity(0.22)).frame(width: 2, height: 2).offset(x: -40, y: -40)
+                Circle().fill(Color.white.opacity(0.18)).frame(width: 2, height: 2).offset(x: 160, y: 60)
+                Circle().fill(Color.white.opacity(0.22)).frame(width: 3, height: 3).offset(x: -160, y: 140)
+            }
+        }
+        .ignoresSafeArea()
     }
 }

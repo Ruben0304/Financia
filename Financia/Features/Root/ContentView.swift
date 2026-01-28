@@ -1,10 +1,8 @@
 import SwiftUI
-import AuthenticationServices
 import Combine
 
 struct ContentView: View {
-    @State private var isAuthenticated = true
-    @State private var errorMessage: String?
+    @AppStorage("invitationValidated") private var invitationValidated = false
     @State private var selectedRange: DateRange = .month
     @State private var entrySheetKind: FinanceEntryFlow?
     @State private var isReceiptScannerPresented = false
@@ -19,24 +17,16 @@ struct ContentView: View {
         ZStack {
             Color(.systemBackground)
 
-            if isAuthenticated {
+            if invitationValidated {
                 authenticatedTabs
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else {
-                WelcomeScreen(
-                    isAuthenticated: isAuthenticated,
-                    errorMessage: errorMessage,
-                    configureRequest: configureRequest,
-                    handleResult: handleResult,
-                    onSkip: skipLogin
-                )
-                .padding(.horizontal, 32)
-                .padding(.vertical, 48)
-                .transition(.opacity)
+                InvitationAccessView()
+                    .transition(.opacity)
             }
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.55), value: isAuthenticated)
+        .animation(.easeInOut(duration: 0.55), value: invitationValidated)
         .sheet(item: $entrySheetKind) { kind in
             AddEntrySheet(kind: kind) { result in
                 handleNewEntry(result)
@@ -90,26 +80,6 @@ struct ContentView: View {
         }
     }
 
-    private func configureRequest(_ request: ASAuthorizationAppleIDRequest) {
-        request.requestedScopes = [.fullName, .email]
-    }
-
-    private func handleResult(_ result: Result<ASAuthorization, Error>) {
-        switch result {
-        case .success(let authorization):
-            guard authorization.credential is ASAuthorizationAppleIDCredential else {
-                errorMessage = "No se pudo leer la credencial devuelta."
-                return
-            }
-
-            completeAuthentication()
-
-        case .failure(let error):
-            errorMessage = error.localizedDescription
-            isAuthenticated = false
-        }
-    }
-
     private func handleIncome() {
         entrySheetKind = .income
     }
@@ -127,16 +97,6 @@ struct ContentView: View {
         // Aquí podríamos agregar lógica adicional si es necesario
     }
 
-    private func skipLogin() {
-        completeAuthentication()
-    }
-
-    private func completeAuthentication() {
-        withAnimation(.easeInOut(duration: 0.6)) {
-            isAuthenticated = true
-        }
-        errorMessage = nil
-    }
 }
 
 #Preview {
