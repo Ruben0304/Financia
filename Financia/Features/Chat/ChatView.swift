@@ -11,8 +11,7 @@ struct ChatView: View {
     var body: some View {
         ZStack(alignment: .top) {
             // Background color de iMessage
-            Color(UIColor.systemBackground)
-                .ignoresSafeArea()
+            DarkFinanceBackground()
 
             VStack(spacing: 0) {
                 // Lista de mensajes
@@ -71,7 +70,7 @@ struct ChatView: View {
                             .font(.system(size: 17, weight: .semibold))
                         Text("Atrás")
                     }
-                    .foregroundColor(.blue)
+                    .foregroundColor(DarkFinanceColors.primaryAccent)
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -85,7 +84,7 @@ struct ChatView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .foregroundColor(.blue)
+                        .foregroundColor(DarkFinanceColors.primaryAccent)
                 }
             }
         }
@@ -111,10 +110,10 @@ struct ChatView: View {
                     Text("\(viewModel.transactionFilter.rawValue) · \(viewModel.timePeriod.rawValue)")
                         .font(.system(size: 13, weight: .medium))
                 }
-                .foregroundColor(.blue)
+                .foregroundColor(DarkFinanceColors.primaryAccent)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Color.blue.opacity(0.1))
+                .background(DarkFinanceColors.primaryAccent.opacity(0.15))
                 .clipShape(Capsule())
             }
 
@@ -126,17 +125,18 @@ struct ChatView: View {
     private var messageInputBar: some View {
         VStack(spacing: 0) {
             Divider()
-                .background(Color(.separator))
+                .background(DarkFinanceColors.cardBorder)
 
             HStack(alignment: .bottom, spacing: 8) {
                 // TextField con estilo iMessage
                 HStack {
-                    TextField("iMessage", text: $viewModel.currentInput, axis: .vertical)
+                    TextField("Escribe un mensaje", text: $viewModel.currentInput, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 17))
                         .lineLimit(1...5)
                         .focused($isInputFocused)
                         .submitLabel(.send)
+                        .foregroundColor(DarkFinanceColors.primaryText)
                         .onSubmit {
                             Task {
                                 await viewModel.sendMessage()
@@ -147,11 +147,11 @@ struct ChatView: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color(.systemGray6))
+                        .fill(DarkFinanceColors.inputBackground)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color(.systemGray4), lineWidth: 0.5)
+                        .stroke(DarkFinanceColors.inputBorder, lineWidth: 0.5)
                 )
 
                 // Botón de envío estilo iMessage
@@ -164,8 +164,8 @@ struct ChatView: View {
                         .font(.system(size: 34))
                         .foregroundStyle(
                             viewModel.currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? Color(.systemGray3)
-                            : Color.blue
+                            ? DarkFinanceColors.tertiaryText
+                            : DarkFinanceColors.primaryAccent
                         )
                 }
                 .disabled(viewModel.currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -173,7 +173,7 @@ struct ChatView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(Color(.systemBackground))
+            .background(DarkFinanceColors.cardBackground)
         }
     }
 
@@ -226,17 +226,17 @@ struct MessageBubble: View {
                     .font(.system(size: 17))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .foregroundColor(message.isUser ? .white : Color(.label))
+                    .foregroundColor(message.isUser ? .white : DarkFinanceColors.primaryText)
                     .background(
                         MessageBubbleShape(isFromCurrentUser: message.isUser)
-                            .fill(message.isUser ? Color.blue : Color(.systemGray5))
+                            .fill(message.isUser ? DarkFinanceColors.primaryAccent : DarkFinanceColors.inputBackground)
                     )
                     .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: message.isUser ? .trailing : .leading)
 
                 // Timestamp discreto
                 Text(message.timestamp, style: .time)
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(DarkFinanceColors.secondaryText)
                     .padding(.horizontal, 4)
             }
 
@@ -309,7 +309,7 @@ private struct TypingIndicatorBubble: View {
                 .padding(.vertical, 12)
                 .background(
                     MessageBubbleShape(isFromCurrentUser: false)
-                        .fill(Color(.systemGray5))
+                        .fill(DarkFinanceColors.inputBackground)
                 )
             Spacer()
         }
@@ -324,7 +324,7 @@ private struct TypingIndicator: View {
         HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(Color.gray.opacity(0.7))
+                    .fill(DarkFinanceColors.secondaryText.opacity(0.7))
                     .frame(width: 8, height: 8)
                     .scaleEffect(phase == index ? 1.2 : 0.8)
                     .opacity(phase == index ? 1.0 : 0.5)

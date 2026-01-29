@@ -12,40 +12,41 @@ struct BalanceView: View {
     @EnvironmentObject private var transactionManager: TransactionManager
     @EnvironmentObject private var debtManager: DebtManager
     @EnvironmentObject private var walletManager: WalletManager
+    @EnvironmentObject private var categoryManager: CategoryManager
+    @EnvironmentObject private var wealthManager: WealthManager
 
     @State private var selectedTab: BalanceTab = .ingresos
     @State private var entrySheetKind: FinanceEntryFlow?
     @State private var isAddingDebt: Bool = false
+    @State private var selectedPeriod: String = getCurrentMonthYear()
+    @State private var repeatErrorMessage: String?
+    @State private var isShowingRepeatError = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                pickerCard
-                statsCard
-                if selectedTab == .deudas {
-                    debtsCard
-                }
-                linksCard
-            }
-            .padding()
-        }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Balance")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
+        ZStack {
+            DarkFinanceBackground()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    headerView
+                    tabPicker
+
                     switch selectedTab {
                     case .ingresos:
-                        entrySheetKind = .income
+                        incomeCard
+                        categoryPieSection(type: .income)
+                        assetsAndJobsSection
                     case .gastos:
-                        entrySheetKind = .expense
+                        expenseCard
+                        categoryPieSection(type: .expense)
+                        liabilitiesSection
                     case .deudas:
-                        isAddingDebt = true
+                        debtCard
                     }
-                } label: {
-                    Image(systemName: "plus")
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 100)
             }
         }
         .sheet(item: $entrySheetKind) { kind in
@@ -57,289 +58,569 @@ struct BalanceView: View {
                 debtManager.addDebt(newDebt)
             }
         }
+        .alert("No se pudo repetir", isPresented: $isShowingRepeatError, actions: {
+            Button("OK", role: .cancel) {}
+        }, message: {
+            Text(repeatErrorMessage ?? "Revisa el saldo de la cartera.")
+        })
     }
 
-    private var pickerCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Resumen")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Picker("Sección", selection: $selectedTab) {
-                ForEach(BalanceTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
+    // MARK: - Header
+    private var headerView: some View {
+        HStack {
+            Text("Estadísticas")
+                .font(.custom("Georgia", size: 28))
+                .foregroundColor(DarkFinanceColors.primaryText)
+
+            Spacer()
+
+            Menu {
+                Button("Enero 2025") { selectedPeriod = "Enero 2025" }
+                Button("Febrero 2025") { selectedPeriod = "Febrero 2025" }
+                Button("Marzo 2025") { selectedPeriod = "Marzo 2025" }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(selectedPeriod)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12))
+                        .foregroundColor(DarkFinanceColors.secondaryText)
                 }
-            }
-            .pickerStyle(.segmented)
-        }
-        .padding(12)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.05), radius: 6, y: 3)
-    }
-
-    private var statsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(statColor.opacity(0.18))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: statIcon)
-                        .foregroundColor(statColor)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statTitle)
-                        .font(.headline)
-                        .foregroundColor(statColor)
-                    Text(statSubtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                Text("Total")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(statColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(statColor.opacity(0.12), in: Capsule())
-            }
-
-            if statLines.isEmpty {
-                Text("--")
-                    .foregroundColor(.secondary)
-            } else {
-                ForEach(statLines, id: \.label) { line in
-                    HStack {
-                        Text(line.label)
-                            .font(.subheadline)
-                        Spacer()
-                        Text(line.value)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(statColor)
-                    }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background(statColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                }
-            }
-
-            HStack {
-                Text("Movimientos")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("\(movementCount)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.systemBackground))
-                .overlay(
-                    LinearGradient(
-                        colors: [statColor.opacity(0.18), statColor.opacity(0.02), Color.clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(hex: "1A1A1D"))
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(statColor.opacity(0.12), lineWidth: 1)
-                )
-        }
-        .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
-    }
-
-    private var linksCard: some View {
-        VStack(spacing: 10) {
-            switch selectedTab {
-            case .ingresos:
-                NavigationLink {
-                    HistoryView(filter: .income)
-                } label: {
-                    Label("Ver historial de ingresos", systemImage: "clock.arrow.circlepath")
-                        .foregroundColor(.primary)
-                }
-            case .gastos:
-                NavigationLink {
-                    HistoryView(filter: .expense)
-                } label: {
-                    Label("Ver historial de gastos", systemImage: "clock.arrow.circlepath")
-                        .foregroundColor(.primary)
-                }
-            case .deudas:
-                NavigationLink {
-                    DebtsView()
-                } label: {
-                    Label("Gestionar deudas", systemImage: "banknote")
-                        .foregroundColor(.primary)
-                }
-                NavigationLink {
-                    DebtHistoryView()
-                } label: {
-                    Label("Ver deudas pagadas", systemImage: "clock.arrow.circlepath")
-                        .foregroundColor(.primary)
-                }
             }
         }
-        .padding(12)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.05), radius: 6, y: 3)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
 
-    private var statTitle: String {
-        switch selectedTab {
-        case .ingresos: return "Ingresos"
-        case .gastos: return "Gastos"
-        case .deudas: return "Deudas"
-        }
-    }
-
-    private var statSubtitle: String {
-        switch selectedTab {
-        case .ingresos: return "Entradas registradas"
-        case .gastos: return "Salidas registradas"
-        case .deudas: return "Deudas activas"
-        }
-    }
-
-    private var statIcon: String {
-        switch selectedTab {
-        case .ingresos: return "arrow.down.circle.fill"
-        case .gastos: return "arrow.up.circle.fill"
-        case .deudas: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var statColor: Color {
-        switch selectedTab {
-        case .ingresos: return Color(red: 0.20, green: 0.60, blue: 0.46)
-        case .gastos: return Color(red: 0.86, green: 0.33, blue: 0.33)
-        case .deudas: return Color(red: 0.86, green: 0.33, blue: 0.33)
-        }
-    }
-
-    private struct StatLine {
-        let label: String
-        let value: String
-    }
-
-    private var statLines: [StatLine] {
-        switch selectedTab {
-        case .ingresos:
-            return totalsByCurrency(for: .income).map {
-                StatLine(label: $0.currency.rawValue, value: $0.total.formatted(.currency(code: $0.currency.rawValue)))
-            }
-        case .gastos:
-            return totalsByCurrency(for: .expense).map {
-                StatLine(label: $0.currency.rawValue, value: $0.total.formatted(.currency(code: $0.currency.rawValue)))
-            }
-        case .deudas:
-            return totalsDebtsByCurrency().map {
-                StatLine(label: $0.currency.rawValue, value: $0.total.formatted(.currency(code: $0.currency.rawValue)))
+    // MARK: - Tab Picker
+    private var tabPicker: some View {
+        Picker("Vista", selection: $selectedTab) {
+            ForEach(BalanceTab.allCases) { tab in
+                Text(tab.rawValue).tag(tab)
             }
         }
+        .pickerStyle(.segmented)
     }
 
-    private var movementCount: Int {
-        switch selectedTab {
-        case .ingresos:
-            return transactionManager.transactions.filter { $0.type == .income }.count
-        case .gastos:
-            return transactionManager.transactions.filter { $0.type == .expense }.count
-        case .deudas:
-            return activeDebts.count
-        }
+    // MARK: - Cards
+    private var incomeCard: some View {
+        transactionCard(
+            title: "Ingresos",
+            amount: totalIncome,
+            color: DarkFinanceColors.successGreen,
+            transactions: recentIncomeTransactions,
+            filter: .income
+        )
     }
 
-    private func totalsByCurrency(for type: TransactionType) -> [(currency: Currency, total: Double)] {
-        let filtered = transactionManager.transactions.filter { $0.type == type }
-        let grouped = Dictionary(grouping: filtered, by: { transactionCurrency(for: $0) })
-        let totals = grouped.compactMap { key, items -> (Currency, Double)? in
-            guard let currency = key else { return nil }
-            let total = items.reduce(0) { $0 + $1.amount }
-            return (currency, total)
-        }
-        return totals.sorted { $0.0.rawValue < $1.0.rawValue }
+    private var expenseCard: some View {
+        transactionCard(
+            title: "Gastos",
+            amount: totalExpenses,
+            color: DarkFinanceColors.errorRed,
+            transactions: recentExpenseTransactions,
+            filter: .expense
+        )
     }
 
-    private func totalsDebtsByCurrency() -> [(currency: Currency, total: Double)] {
-        let grouped = Dictionary(grouping: activeDebts, by: { $0.moneda })
-        return grouped.map { currency, debts in
-            let total = debts.reduce(0) { $0 + $1.monto }
-            return (currency, total)
-        }
-        .sorted { $0.0.rawValue < $1.0.rawValue }
-    }
-
-    private var activeDebts: [Debt] {
-        debtManager.debts
-            .filter { $0.monto > 0 }
-            .sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private var debtsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var debtCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Deudas sin pagar")
-                    .font(.headline)
+                Text("Deudas")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
                 Spacer()
-                Text("\(activeDebts.count)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
+                NavigationLink(destination: DebtsView()) {
+                    Text("Ver todas")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DarkFinanceColors.primaryAccent)
+                }
             }
 
-            if activeDebts.isEmpty {
-                Text("No hay deudas pendientes.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            if recentDebts.isEmpty {
+                Text("No hay deudas registradas")
+                    .font(.system(size: 14))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
             } else {
-                ForEach(activeDebts) { debt in
-                    NavigationLink {
-                        DebtDetailView(debt: debt)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Circle()
-                                .fill(statColor.opacity(0.18))
-                                .frame(width: 34, height: 34)
-                                .overlay(
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(statColor)
-                                )
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(debt.nombre)
-                                    .font(.subheadline.weight(.semibold))
-                                if !debt.motivo.isEmpty {
-                                    Text(debt.motivo)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            Spacer()
-                            Text(debt.monto, format: .currency(code: debt.moneda.rawValue))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(statColor)
+                VStack(spacing: 12) {
+                    ForEach(recentDebts) { debt in
+                        NavigationLink {
+                            DebtDetailView(debt: debt)
+                        } label: {
+                            debtRow(debt)
                         }
-                        .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                    if debt.id != activeDebts.last?.id {
-                        Divider()
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
-        .padding(12)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: Color.black.opacity(0.05), radius: 6, y: 3)
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
     }
 
-    private func transactionCurrency(for transaction: Transaction) -> Currency? {
-        walletManager.wallet(withId: transaction.walletId)?.currency
+    private var assetsAndJobsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Activos y trabajo")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Spacer()
+                NavigationLink(destination: AssetsAndJobsView()) {
+                    Text("Ver todos")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DarkFinanceColors.primaryAccent)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Activos")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+
+                if wealthManager.assets.isEmpty {
+                    Text("Sin activos")
+                        .font(.system(size: 13))
+                        .foregroundColor(DarkFinanceColors.tertiaryText)
+                } else {
+                    ForEach(wealthManager.assets.prefix(3)) { asset in
+                        NavigationLink {
+                            AssetDetailView(asset: asset)
+                        } label: {
+                            simpleWealthRow(title: asset.name, subtitle: "Activo")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Trabajo")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+
+                if wealthManager.jobs.isEmpty {
+                    Text("Sin trabajos")
+                        .font(.system(size: 13))
+                        .foregroundColor(DarkFinanceColors.tertiaryText)
+                } else {
+                    ForEach(wealthManager.jobs.prefix(3)) { job in
+                        NavigationLink {
+                            JobDetailView(job: job)
+                        } label: {
+                            simpleWealthRow(title: job.name, subtitle: "Trabajo")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
+    private var liabilitiesSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Pasivos")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Spacer()
+                NavigationLink(destination: LiabilitiesView()) {
+                    Text("Ver todos")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DarkFinanceColors.primaryAccent)
+                }
+            }
+
+            if wealthManager.liabilities.isEmpty {
+                Text("Sin pasivos")
+                    .font(.system(size: 13))
+                    .foregroundColor(DarkFinanceColors.tertiaryText)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(wealthManager.liabilities.prefix(3)) { liability in
+                        NavigationLink {
+                            LiabilityDetailView(liability: liability)
+                        } label: {
+                            simpleWealthRow(title: liability.name, subtitle: "Pasivo")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
+    private func simpleWealthRow(title: String, subtitle: String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12))
+                .foregroundColor(DarkFinanceColors.secondaryText)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func transactionCard(
+        title: String,
+        amount: Double,
+        color: Color,
+        transactions: [Transaction],
+        filter: HistoryFilter
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Spacer()
+                NavigationLink(destination: HistoryView(filter: filter)) {
+                    Text("Ver todos")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DarkFinanceColors.primaryAccent)
+                }
+            }
+
+            Text(amount, format: .currency(code: "CUP"))
+                .font(DarkFinanceTypography.monoAmount(size: 30, weight: .medium))
+                .foregroundColor(color)
+
+            if transactions.isEmpty {
+                Text("No hay movimientos recientes")
+                    .font(.system(size: 14))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 16)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(transactions) { transaction in
+                        NavigationLink {
+                            TransactionEditView(transaction: transaction)
+                        } label: {
+                            transactionRow(transaction)
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                                repeatTransaction(transaction)
+                            }
+                        )
+                    }
+                }
+                .padding(.top, 8)
+            }
+        }
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
+    // MARK: - Computed Properties
+    private var totalIncome: Double {
+        transactionManager.transactions
+            .filter { $0.type == .income }
+            .reduce(0) { $0 + $1.amount }
+    }
+
+    private var totalExpenses: Double {
+        transactionManager.transactions
+            .filter { $0.type == .expense }
+            .reduce(0) { $0 + $1.amount }
+    }
+
+    private static func getCurrentMonthYear() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "es_ES")
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: Date()).capitalized
+    }
+
+    private var recentIncomeTransactions: [Transaction] {
+        Array(
+            transactionManager.transactions
+                .filter { $0.type == .income }
+                .sorted { $0.date > $1.date }
+                .prefix(4)
+        )
+    }
+
+    private var recentExpenseTransactions: [Transaction] {
+        Array(
+            transactionManager.transactions
+                .filter { $0.type == .expense }
+                .sorted { $0.date > $1.date }
+                .prefix(4)
+        )
+    }
+
+    private var recentDebts: [Debt] {
+        Array(debtManager.debts.sorted { $0.createdAt > $1.createdAt }.prefix(4))
+    }
+
+    private func transactionRow(_ transaction: Transaction) -> some View {
+        let category = category(for: transaction)
+        return HStack(spacing: 12) {
+            Circle()
+                .fill(category?.color ?? Color(.systemGray4))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: category?.icon ?? "tag.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transaction.subcategoryName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Text(transaction.description.isEmpty ? transaction.categoryName : transaction.description)
+                    .font(.system(size: 12))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+            }
+
+            Spacer()
+
+            Text(signedAmount(for: transaction))
+                .font(DarkFinanceTypography.monoAmount(size: 13, weight: .semibold))
+                .foregroundColor(transaction.type == .income ? DarkFinanceColors.successGreen : DarkFinanceColors.errorRed)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func debtRow(_ debt: Debt) -> some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color(.systemGray4))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: "creditcard.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(debt.nombre)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Text(debt.motivo)
+                    .font(.system(size: 12))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+            }
+
+            Spacer()
+
+            Text(debt.monto, format: .currency(code: debt.moneda.rawValue))
+                .font(DarkFinanceTypography.monoAmount(size: 13, weight: .semibold))
+                .foregroundColor(DarkFinanceColors.primaryText)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func signedAmount(for transaction: Transaction) -> String {
+        let formatted = transaction.amount.formatted(.currency(code: "CUP"))
+        return transaction.type == .income ? "+\(formatted)" : "-\(formatted)"
+    }
+
+    private func category(for transaction: Transaction) -> TransactionCategory? {
+        if transaction.type == .income {
+            return categoryManager.incomeCategories.first { $0.id == transaction.categoryId }
+        }
+        return categoryManager.expenseCategories.first { $0.id == transaction.categoryId }
+    }
+
+    private func repeatTransaction(_ transaction: Transaction) {
+        if transaction.type == .expense {
+            guard let wallet = walletManager.wallet(withId: transaction.walletId) else {
+                showRepeatError("No se encontró la cartera origen.")
+                return
+            }
+            let available = walletManager.calculateBalance(for: wallet)
+            if transaction.amount > available {
+                showRepeatError("El saldo de la cartera no es suficiente.")
+                return
+            }
+        }
+
+        let now = Date()
+        let repeated = Transaction(
+            type: transaction.type,
+            amount: transaction.amount,
+            date: now,
+            categoryId: transaction.categoryId,
+            categoryName: transaction.categoryName,
+            subcategoryId: transaction.subcategoryId,
+            subcategoryName: transaction.subcategoryName,
+            description: transaction.description,
+            walletId: transaction.walletId,
+            createdAt: now,
+            lugar: transaction.lugar,
+            subitems: transaction.subitems,
+            assetId: transaction.assetId,
+            jobId: transaction.jobId,
+            liabilityId: transaction.liabilityId
+        )
+        transactionManager.addTransaction(repeated)
+        walletManager.syncWalletBalance(for: transaction.walletId)
+    }
+
+    private func showRepeatError(_ message: String) {
+        repeatErrorMessage = message
+        isShowingRepeatError = true
+    }
+
+    // MARK: - Category Pie
+    private func categoryPieSection(type: TransactionType) -> some View {
+        let slices = categorySlices(for: type)
+        let total = slices.reduce(0) { $0 + $1.value }
+
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(type == .income ? "Ingresos por categoría" : "Gastos por categoría")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Spacer()
+            }
+
+            if slices.isEmpty {
+                Text("No hay datos para mostrar")
+                    .font(.system(size: 14))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 24)
+            } else {
+                HStack(spacing: 16) {
+                    ZStack {
+                        ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                            PieSlice(
+                                startAngle: startAngle(for: index, in: slices),
+                                endAngle: endAngle(for: index, in: slices),
+                                color: slice.color
+                            )
+                        }
+
+                        VStack(spacing: 4) {
+                            Text(total, format: .currency(code: "CUP"))
+                                .font(DarkFinanceTypography.monoAmount(size: 14, weight: .semibold))
+                                .foregroundColor(DarkFinanceColors.primaryText)
+                            Text("Total")
+                                .font(.system(size: 11))
+                                .foregroundColor(DarkFinanceColors.secondaryText)
+                        }
+                        .padding(10)
+                        .background(
+                            Circle()
+                                .fill(DarkFinanceColors.cardBackground.opacity(0.9))
+                        )
+                    }
+                    .frame(width: 140, height: 140)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(slices.prefix(5)) { slice in
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(slice.color)
+                                    .frame(width: 10, height: 10)
+                                Text(slice.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(DarkFinanceColors.secondaryText)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(slice.percent, format: .percent.precision(.fractionLength(0)))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(DarkFinanceColors.primaryText)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
+    private func categorySlices(for type: TransactionType) -> [CategorySlice] {
+        let transactions = transactionManager.transactions.filter { $0.type == type }
+        let grouped = Dictionary(grouping: transactions, by: { $0.categoryId })
+        let total = transactions.reduce(0) { $0 + $1.amount }
+        guard total > 0 else { return [] }
+
+        let slices = grouped.compactMap { key, items -> CategorySlice? in
+            let value = items.reduce(0) { $0 + $1.amount }
+            guard value > 0 else { return nil }
+            let category = type == .income
+                ? categoryManager.incomeCategories.first { $0.id == key }
+                : categoryManager.expenseCategories.first { $0.id == key }
+            return CategorySlice(
+                name: category?.name ?? "Otros",
+                value: value,
+                color: category?.color ?? Color(.systemGray4),
+                percent: value / total
+            )
+        }
+
+        return slices.sorted { $0.value > $1.value }
+    }
+
+    private func startAngle(for index: Int, in slices: [CategorySlice]) -> Angle {
+        let total = slices.reduce(0) { $0 + $1.value }
+        guard total > 0 else { return .degrees(0) }
+        let sum = slices.prefix(index).reduce(0) { $0 + $1.value }
+        return .degrees((sum / total) * 360 - 90)
+    }
+
+    private func endAngle(for index: Int, in slices: [CategorySlice]) -> Angle {
+        let total = slices.reduce(0) { $0 + $1.value }
+        guard total > 0 else { return .degrees(0) }
+        let sum = slices.prefix(index + 1).reduce(0) { $0 + $1.value }
+        return .degrees((sum / total) * 360 - 90)
+    }
+}
+
+// MARK: - Pie Chart
+private struct CategorySlice: Identifiable {
+    let id = UUID()
+    let name: String
+    let value: Double
+    let color: Color
+    let percent: Double
+}
+
+private struct PieSlice: View {
+    let startAngle: Angle
+    let endAngle: Angle
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = min(geometry.size.width, geometry.size.height)
+            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            let radius = size / 2
+
+            Path { path in
+                path.move(to: center)
+                path.addArc(
+                    center: center,
+                    radius: radius,
+                    startAngle: startAngle,
+                    endAngle: endAngle,
+                    clockwise: false
+                )
+                path.closeSubpath()
+            }
+            .fill(color)
+        }
     }
 }

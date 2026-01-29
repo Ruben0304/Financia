@@ -1,0 +1,34 @@
+# Xcode
+#
+# gitignore contributors: code644, canayan, herrbischoff, xandox
+
+## Build results
+build/
+DerivedData/
+
+## Dependency manager
+Pods/
+Carthage/Checkouts/
+Carthage/Build/
+vendor/bundle/
+
+## User-specific
+*.xcuserstate
+xcuserdata/
+
+## Scripts
+*.swp
+*.lock
+*.DS_Store
+
+## Swift Package Manager
+.build/
+.swiftpm/
+
+## Misc
+*.env
+*.key
+*.pem
+*.cert
+*.p12
+*.jks

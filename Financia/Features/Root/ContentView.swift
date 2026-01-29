@@ -12,6 +12,8 @@ struct ContentView: View {
     @EnvironmentObject var transactionManager: TransactionManager
     @EnvironmentObject var categoryManager: CategoryManager
     @EnvironmentObject var exchangeRateManager: ExchangeRateManager
+    @EnvironmentObject var profileManager: ProfileManager
+    @EnvironmentObject var wealthManager: WealthManager
 
     var body: some View {
         ZStack {
@@ -26,6 +28,7 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
+        .tint(accentColor)
         .animation(.easeInOut(duration: 0.55), value: invitationValidated)
         .sheet(item: $entrySheetKind) { kind in
             AddEntrySheet(kind: kind) { result in
@@ -97,6 +100,9 @@ struct ContentView: View {
         // Aquí podríamos agregar lógica adicional si es necesario
     }
 
+    private var accentColor: Color {
+        Color(hex: profileManager.profile.accentColorHex ?? "FF5C00")
+    }
 }
 
 #Preview {

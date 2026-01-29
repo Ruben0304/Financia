@@ -11,6 +11,7 @@ struct ProfileView: View {
     @State private var usdToCupText: String = ""
     @State private var selectedItem: PhotosPickerItem?
     @State private var avatarData: Data?
+    @State private var accentColor: Color = Color(hex: "FF5C00")
 
     var body: some View {
         Form {
@@ -62,6 +63,10 @@ struct ProfileView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+            }
+
+            Section("Color principal") {
+                ColorPicker("Acento", selection: $accentColor, supportsOpacity: false)
             }
         }
         .navigationTitle("Perfil")
@@ -115,6 +120,7 @@ struct ProfileView: View {
         situacion = profile.situacionFinanciera
         estrategia = profile.estrategiaFinanciera
         avatarData = profile.avatarData
+        accentColor = Color(hex: profile.accentColorHex ?? "FF5C00")
         if let manualRate = exchangeRateManager.manualUsdToCupRate {
             usdToCupText = formattedRate(manualRate)
         }
@@ -125,7 +131,8 @@ struct ProfileView: View {
             nombre: nombre.trimmingCharacters(in: .whitespacesAndNewlines),
             avatarData: avatarData,
             situacionFinanciera: situacion.trimmingCharacters(in: .whitespacesAndNewlines),
-            estrategiaFinanciera: estrategia.trimmingCharacters(in: .whitespacesAndNewlines)
+            estrategiaFinanciera: estrategia.trimmingCharacters(in: .whitespacesAndNewlines),
+            accentColorHex: colorToHex(accentColor) ?? "FF5C00"
         )
         profileManager.saveProfile(updated)
 
@@ -145,5 +152,20 @@ struct ProfileView: View {
 
     private func formattedRate(_ value: Double) -> String {
         String(format: "%.2f", value)
+    }
+
+    private func colorToHex(_ color: Color) -> String? {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        let r = Int(red * 255)
+        let g = Int(green * 255)
+        let b = Int(blue * 255)
+        return String(format: "%02X%02X%02X", r, g, b)
     }
 }

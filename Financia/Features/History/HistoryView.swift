@@ -192,7 +192,10 @@ struct HistoryView: View {
             walletId: transaction.walletId,
             createdAt: now,
             lugar: transaction.lugar,
-            subitems: transaction.subitems
+            subitems: transaction.subitems,
+            assetId: transaction.assetId,
+            jobId: transaction.jobId,
+            liabilityId: transaction.liabilityId
         )
         transactionManager.addTransaction(repeated)
         walletManager.syncWalletBalance(for: transaction.walletId)

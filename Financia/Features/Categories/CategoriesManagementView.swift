@@ -19,14 +19,17 @@ struct CategoriesManagementView: View {
     @State private var isAddingCategory = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Picker("Tipo", selection: $selectedKind) {
-                    ForEach(CategoryKind.allCases) { kind in
-                        Text(kind.rawValue).tag(kind)
+        ZStack {
+            DarkFinanceBackground()
+
+            ScrollView {
+                VStack(spacing: 16) {
+                    Picker("Tipo", selection: $selectedKind) {
+                        ForEach(CategoryKind.allCases) { kind in
+                            Text(kind.rawValue).tag(kind)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
+                    .pickerStyle(.segmented)
 
                 CategoryGridSelector(
                     title: "Categorías",
@@ -41,8 +44,9 @@ struct CategoriesManagementView: View {
                         showingAddSubcategoryAlert = true
                     }
                 )
+                }
+                .padding()
             }
-            .padding()
         }
         .navigationTitle("Categorías")
         .navigationBarTitleDisplayMode(.inline)

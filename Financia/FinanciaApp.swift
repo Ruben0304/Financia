@@ -24,6 +24,7 @@ struct FinanciaApp: App {
         _ = DebtManager.shared
         _ = ProfileManager.shared
         _ = SavingsGoalManager.shared
+        _ = WealthManager.shared
     }
 
     var body: some Scene {
@@ -37,6 +38,8 @@ struct FinanciaApp: App {
                 .environmentObject(DebtManager.shared)
                 .environmentObject(ProfileManager.shared)
                 .environmentObject(SavingsGoalManager.shared)
+                .environmentObject(WealthManager.shared)
+                .preferredColorScheme(.dark)
         }
     }
 }

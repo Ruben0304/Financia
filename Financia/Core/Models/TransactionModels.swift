@@ -55,6 +55,9 @@ struct Transaction: Identifiable, Codable, Hashable {
     var createdAt: Date
     var lugar: Lugar?
     var subitems: [SubItem]?
+    var assetId: UUID?
+    var jobId: UUID?
+    var liabilityId: UUID?
 
     init(
         id: UUID = UUID(),
@@ -69,7 +72,10 @@ struct Transaction: Identifiable, Codable, Hashable {
         walletId: UUID,
         createdAt: Date = Date(),
         lugar: Lugar? = nil,
-        subitems: [SubItem]? = nil
+        subitems: [SubItem]? = nil,
+        assetId: UUID? = nil,
+        jobId: UUID? = nil,
+        liabilityId: UUID? = nil
     ) {
         self.id = id
         self.type = type
@@ -84,6 +90,9 @@ struct Transaction: Identifiable, Codable, Hashable {
         self.createdAt = createdAt
         self.lugar = lugar
         self.subitems = subitems
+        self.assetId = assetId
+        self.jobId = jobId
+        self.liabilityId = liabilityId
     }
 }
 

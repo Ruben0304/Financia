@@ -8,6 +8,8 @@
 import SwiftUI
 import PhotosUI
 
+extension UIImage: @unchecked Sendable {}
+
 // MARK: - Camera/Library Picker (UIImagePickerController)
 
 /// Image picker that supports both camera and photo library using UIImagePickerController
@@ -85,9 +87,10 @@ struct PhotoLibraryImagePicker: UIViewControllerRepresentable {
             guard let provider = results.first?.itemProvider else { return }
 
             if provider.canLoadObject(ofClass: UIImage.self) {
-                provider.loadObject(ofClass: UIImage.self) { image, _ in
+                provider.loadObject(ofClass: UIImage.self) { [weak self] result, _ in
+                    let uiImage = result as? UIImage
                     DispatchQueue.main.async {
-                        self.parent.image = image as? UIImage
+                        self?.parent.image = uiImage
                     }
                 }
             }

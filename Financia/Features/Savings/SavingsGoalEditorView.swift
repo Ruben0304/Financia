@@ -2,6 +2,9 @@ import SwiftUI
 import PhotosUI
 import LinkPresentation
 
+extension UIImage: @unchecked Sendable {}
+extension LPLinkMetadata: @unchecked Sendable {}
+
 struct SavingsGoalEditorView: View {
     @EnvironmentObject var savingsGoalManager: SavingsGoalManager
     @Environment(\.dismiss) private var dismiss
@@ -216,8 +219,9 @@ struct SavingsGoalEditorView: View {
 
                 let imageProvider = metadata.imageProvider ?? metadata.iconProvider
                 imageProvider?.loadObject(ofClass: UIImage.self) { object, _ in
+                    let image = object as? UIImage
                     DispatchQueue.main.async {
-                        if let image = object as? UIImage {
+                        if let image = image {
                             self.linkPreviewImage = image
                             if !self.userPickedImage && self.selectedImage == nil {
                                 self.selectedImage = image

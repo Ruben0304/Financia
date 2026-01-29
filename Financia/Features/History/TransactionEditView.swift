@@ -5,6 +5,7 @@ struct TransactionEditView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var categoryManager: CategoryManager
     @EnvironmentObject private var transactionManager: TransactionManager
+    @EnvironmentObject private var wealthManager: WealthManager
 
     let transaction: Transaction
 
@@ -14,6 +15,10 @@ struct TransactionEditView: View {
     @State private var selectedWallet: Wallet?
     @State private var selectedCategory: TransactionCategory?
     @State private var selectedSubcategory: Subcategory?
+    @State private var incomeSourceSelection: IncomeSourceSelection = .none
+    @State private var selectedAsset: Asset?
+    @State private var selectedJob: Job?
+    @State private var selectedLiability: Liability?
 
     @State private var showingAddSubcategoryAlert = false
     @State private var newSubcategoryName = ""
@@ -74,6 +79,93 @@ struct TransactionEditView: View {
                     )
                 }
 
+                if transaction.type == .income {
+                    Section("Origen (Opcional)") {
+                        Picker("Origen", selection: $incomeSourceSelection) {
+                            ForEach(IncomeSourceSelection.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        if incomeSourceSelection == .job {
+                            Menu {
+                                Button("Ninguno") { selectedJob = nil }
+                                ForEach(wealthManager.jobs) { job in
+                                    Button {
+                                        selectedJob = job
+                                    } label: {
+                                        HStack {
+                                            Text(job.name)
+                                            if selectedJob?.id == job.id {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Text(selectedJob?.name ?? "Seleccionar trabajo")
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        } else if incomeSourceSelection == .asset {
+                            Menu {
+                                Button("Ninguno") { selectedAsset = nil }
+                                ForEach(wealthManager.assets) { asset in
+                                    Button {
+                                        selectedAsset = asset
+                                    } label: {
+                                        HStack {
+                                            Text(asset.name)
+                                            if selectedAsset?.id == asset.id {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Text(selectedAsset?.name ?? "Seleccionar activo")
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Section("Pasivo (Opcional)") {
+                        Menu {
+                            Button("Ninguno") { selectedLiability = nil }
+                            ForEach(wealthManager.liabilities) { liability in
+                                Button {
+                                    selectedLiability = liability
+                                } label: {
+                                    HStack {
+                                        Text(liability.name)
+                                        if selectedLiability?.id == liability.id {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(selectedLiability?.name ?? "Seleccionar pasivo")
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 Section("Descripción") {
                     TextField("Descripción", text: $description, axis: .vertical)
                 }
@@ -119,6 +211,14 @@ struct TransactionEditView: View {
             .onAppear {
                 initializeFromTransaction()
             }
+            .onChange(of: incomeSourceSelection) { newValue in
+                if newValue != .asset {
+                    selectedAsset = nil
+                }
+                if newValue != .job {
+                    selectedJob = nil
+                }
+            }
         }
     }
 
@@ -137,6 +237,18 @@ struct TransactionEditView: View {
         selectedWallet = walletManager.wallet(withId: transaction.walletId)
         selectedCategory = categoryList.first { $0.id == transaction.categoryId }
         selectedSubcategory = selectedCategory?.subcategories.first { $0.id == transaction.subcategoryId }
+        selectedAsset = wealthManager.asset(withId: transaction.assetId)
+        selectedJob = wealthManager.job(withId: transaction.jobId)
+        selectedLiability = wealthManager.liability(withId: transaction.liabilityId)
+        if transaction.type == .income {
+            if selectedJob != nil {
+                incomeSourceSelection = .job
+            } else if selectedAsset != nil {
+                incomeSourceSelection = .asset
+            } else {
+                incomeSourceSelection = .none
+            }
+        }
     }
 
     private func addSubcategory(to category: TransactionCategory, with name: String) {
@@ -164,7 +276,10 @@ struct TransactionEditView: View {
             walletId: finalWallet.id,
             createdAt: transaction.createdAt,
             lugar: transaction.lugar,
-            subitems: transaction.subitems
+            subitems: transaction.subitems,
+            assetId: transaction.type == .income && incomeSourceSelection == .asset ? selectedAsset?.id : nil,
+            jobId: transaction.type == .income && incomeSourceSelection == .job ? selectedJob?.id : nil,
+            liabilityId: transaction.type == .expense ? selectedLiability?.id : nil
         )
         transactionManager.updateTransaction(updated)
         dismiss()

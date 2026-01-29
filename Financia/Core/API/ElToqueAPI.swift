@@ -1,6 +1,6 @@
 import Foundation
 
-struct ElToqueRatesResponse: Codable {
+nonisolated struct ElToqueRatesResponse: Codable {
     let tasas: [String: Double]
     let date: String
 }
