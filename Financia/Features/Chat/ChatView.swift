@@ -5,8 +5,6 @@ struct ChatView: View {
     @StateObject private var viewModel = ChatViewModel()
     @State private var showFilterSheet = false
     @FocusState private var isInputFocused: Bool
-    @Environment(\.dismiss) private var dismiss
-    @State private var keyboardHeight: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -51,28 +49,11 @@ struct ChatView: View {
                     }
                 }
 
-                // Input de mensaje estilo iMessage
-                messageInputBar
-                    .padding(.bottom, keyboardHeight)
-                    .animation(.easeOut(duration: 0.25), value: keyboardHeight)
             }
         }
         .navigationTitle("FinancIA")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text("Atrás")
-                    }
-                    .foregroundColor(DarkFinanceColors.primaryAccent)
-                }
-            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button(action: { showFilterSheet = true }) {
@@ -87,15 +68,58 @@ struct ChatView: View {
                         .foregroundColor(DarkFinanceColors.primaryAccent)
                 }
             }
+
+            ToolbarItem(placement: .bottomBar) {
+                TextField("Escribe un mensaje", text: $viewModel.currentInput)
+                    .autocorrectionDisabled()
+                    .focused($isInputFocused)
+                    .submitLabel(.send)
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                    .onSubmit {
+                        Task {
+                            await viewModel.sendMessage()
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
+            }
+
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
+                    Button(action: {
+                        Task {
+                            await viewModel.sendMessage()
+                        }
+                    }) {
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(DarkFinanceColors.primaryAccent)
+                    }
+                    .disabled(viewModel.currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            } else {
+                ToolbarItem(placement: .bottomBar) {
+                    Button(action: {
+                        Task {
+                            await viewModel.sendMessage()
+                        }
+                    }) {
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(DarkFinanceColors.primaryAccent)
+                    }
+                    .disabled(viewModel.currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+
+            
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 transactionFilter: $viewModel.transactionFilter,
                 timePeriod: $viewModel.timePeriod
             )
-        }
-        .onAppear {
-            setupKeyboardObservers()
         }
     }
 
@@ -122,91 +146,6 @@ struct ChatView: View {
         .padding(.horizontal, 8)
     }
 
-    private var messageInputBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-                .background(DarkFinanceColors.cardBorder)
-
-            HStack(alignment: .bottom, spacing: 8) {
-                // TextField con estilo iMessage
-                HStack {
-                    TextField("Escribe un mensaje", text: $viewModel.currentInput, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 17))
-                        .lineLimit(1...5)
-                        .focused($isInputFocused)
-                        .submitLabel(.send)
-                        .foregroundColor(DarkFinanceColors.primaryText)
-                        .onSubmit {
-                            Task {
-                                await viewModel.sendMessage()
-                            }
-                        }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(DarkFinanceColors.inputBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(DarkFinanceColors.inputBorder, lineWidth: 0.5)
-                )
-
-                // Botón de envío estilo iMessage
-                Button(action: {
-                    Task {
-                        await viewModel.sendMessage()
-                    }
-                }) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(
-                            viewModel.currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? DarkFinanceColors.tertiaryText
-                            : DarkFinanceColors.primaryAccent
-                        )
-                }
-                .disabled(viewModel.currentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .padding(.bottom, 2)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(DarkFinanceColors.cardBackground)
-        }
-    }
-
-    // MARK: - Keyboard Handling
-
-    private func setupKeyboardObservers() {
-        NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillShowNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard let userInfo = notification.userInfo,
-                  let keyboardFrame = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
-                return
-            }
-
-            let window = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap { $0.windows }
-                .first { $0.isKeyWindow }
-
-            let bottomSafeArea = window?.safeAreaInsets.bottom ?? 0
-            keyboardHeight = keyboardFrame.height - bottomSafeArea
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillHideNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            keyboardHeight = 0
-        }
-    }
 }
 
 // MARK: - MessageBubble

@@ -79,6 +79,14 @@ class WalletManager: ObservableObject {
         saveWallets()
     }
 
+    /// Ajusta el balance base de una cartera sin crear transacción.
+    /// Usar un valor positivo para sumar, negativo para restar.
+    func adjustBalance(walletId: UUID, amount: Double) {
+        guard let index = wallets.firstIndex(where: { $0.id == walletId }) else { return }
+        wallets[index].balance += amount
+        saveWallets()
+    }
+
     // MARK: - Balance Calculation
 
     // Calcular balance real basado en transacciones

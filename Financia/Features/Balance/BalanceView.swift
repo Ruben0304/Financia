@@ -14,11 +14,12 @@ struct BalanceView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var categoryManager: CategoryManager
     @EnvironmentObject private var wealthManager: WealthManager
+    @EnvironmentObject private var expenseAnalysisManager: ExpenseAnalysisManager
 
     @State private var selectedTab: BalanceTab = .ingresos
+    @State private var selectedCurrency: Currency = .cup
     @State private var entrySheetKind: FinanceEntryFlow?
     @State private var isAddingDebt: Bool = false
-    @State private var selectedPeriod: String = getCurrentMonthYear()
     @State private var repeatErrorMessage: String?
     @State private var isShowingRepeatError = false
 
@@ -38,6 +39,7 @@ struct BalanceView: View {
                         assetsAndJobsSection
                     case .gastos:
                         expenseCard
+                        aiAnalysisCard
                         categoryPieSection(type: .expense)
                         liabilitiesSection
                     case .deudas:
@@ -74,26 +76,12 @@ struct BalanceView: View {
 
             Spacer()
 
-            Menu {
-                Button("Enero 2025") { selectedPeriod = "Enero 2025" }
-                Button("Febrero 2025") { selectedPeriod = "Febrero 2025" }
-                Button("Marzo 2025") { selectedPeriod = "Marzo 2025" }
-            } label: {
-                HStack(spacing: 8) {
-                    Text(selectedPeriod)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DarkFinanceColors.primaryText)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12))
-                        .foregroundColor(DarkFinanceColors.secondaryText)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(hex: "1A1A1D"))
-                )
+            Picker("", selection: $selectedCurrency) {
+                Text("CUP").tag(Currency.cup)
+                Text("USD").tag(Currency.usd)
             }
+            .pickerStyle(.segmented)
+            .frame(width: 120)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -128,6 +116,49 @@ struct BalanceView: View {
             transactions: recentExpenseTransactions,
             filter: .expense
         )
+    }
+
+    // MARK: - AI Analysis Card
+    private var aiAnalysisCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14))
+                Text("Análisis IA")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(.white.opacity(0.95))
+
+            if expenseAnalysisManager.isAnalyzing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(0.7)
+                    Text("Analizando tu gasto...")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+            } else if let analysis = expenseAnalysisManager.lastAnalysis {
+                Text(analysis)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(4)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "C026D3"), Color(hex: "7E22CE")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .shadow(color: Color(hex: "C026D3").opacity(0.35), radius: 10, x: 0, y: 4)
     }
 
     private var debtCard: some View {
@@ -297,7 +328,7 @@ struct BalanceView: View {
                 }
             }
 
-            Text(amount, format: .currency(code: "CUP"))
+            Text(amount, format: .currency(code: selectedCurrency.rawValue))
                 .font(DarkFinanceTypography.monoAmount(size: 30, weight: .medium))
                 .foregroundColor(color)
 
@@ -330,29 +361,26 @@ struct BalanceView: View {
     }
 
     // MARK: - Computed Properties
+    private func transactionCurrency(for transaction: Transaction) -> Currency? {
+        walletManager.wallet(withId: transaction.walletId)?.currency
+    }
+
     private var totalIncome: Double {
         transactionManager.transactions
-            .filter { $0.type == .income }
+            .filter { $0.type == .income && transactionCurrency(for: $0) == selectedCurrency }
             .reduce(0) { $0 + $1.amount }
     }
 
     private var totalExpenses: Double {
         transactionManager.transactions
-            .filter { $0.type == .expense }
+            .filter { $0.type == .expense && transactionCurrency(for: $0) == selectedCurrency }
             .reduce(0) { $0 + $1.amount }
-    }
-
-    private static func getCurrentMonthYear() -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "es_ES")
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: Date()).capitalized
     }
 
     private var recentIncomeTransactions: [Transaction] {
         Array(
             transactionManager.transactions
-                .filter { $0.type == .income }
+                .filter { $0.type == .income && transactionCurrency(for: $0) == selectedCurrency }
                 .sorted { $0.date > $1.date }
                 .prefix(4)
         )
@@ -361,7 +389,7 @@ struct BalanceView: View {
     private var recentExpenseTransactions: [Transaction] {
         Array(
             transactionManager.transactions
-                .filter { $0.type == .expense }
+                .filter { $0.type == .expense && transactionCurrency(for: $0) == selectedCurrency }
                 .sorted { $0.date > $1.date }
                 .prefix(4)
         )
@@ -431,7 +459,7 @@ struct BalanceView: View {
     }
 
     private func signedAmount(for transaction: Transaction) -> String {
-        let formatted = transaction.amount.formatted(.currency(code: "CUP"))
+        let formatted = transaction.amount.formatted(.currency(code: selectedCurrency.rawValue))
         return transaction.type == .income ? "+\(formatted)" : "-\(formatted)"
     }
 
@@ -503,30 +531,30 @@ struct BalanceView: View {
                     .padding(.vertical, 24)
             } else {
                 HStack(spacing: 16) {
-                    ZStack {
-                        ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
-                            PieSlice(
-                                startAngle: startAngle(for: index, in: slices),
-                                endAngle: endAngle(for: index, in: slices),
-                                color: slice.color
-                            )
-                        }
+                    VStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .stroke(DarkFinanceColors.cardBorder, lineWidth: 10)
 
-                        VStack(spacing: 4) {
-                            Text(total, format: .currency(code: "CUP"))
+                            ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
+                                PieSlice(
+                                    startAngle: startAngle(for: index, in: slices),
+                                    endAngle: endAngle(for: index, in: slices),
+                                    color: slice.color
+                                )
+                            }
+                        }
+                        .frame(width: 140, height: 140)
+
+                        VStack(spacing: 2) {
+                            Text("Total")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(DarkFinanceColors.secondaryText)
+                            Text(total, format: .currency(code: selectedCurrency.rawValue))
                                 .font(DarkFinanceTypography.monoAmount(size: 14, weight: .semibold))
                                 .foregroundColor(DarkFinanceColors.primaryText)
-                            Text("Total")
-                                .font(.system(size: 11))
-                                .foregroundColor(DarkFinanceColors.secondaryText)
                         }
-                        .padding(10)
-                        .background(
-                            Circle()
-                                .fill(DarkFinanceColors.cardBackground.opacity(0.9))
-                        )
                     }
-                    .frame(width: 140, height: 140)
 
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(slices.prefix(5)) { slice in
@@ -552,7 +580,7 @@ struct BalanceView: View {
     }
 
     private func categorySlices(for type: TransactionType) -> [CategorySlice] {
-        let transactions = transactionManager.transactions.filter { $0.type == type }
+        let transactions = transactionManager.transactions.filter { $0.type == type && transactionCurrency(for: $0) == selectedCurrency }
         let grouped = Dictionary(grouping: transactions, by: { $0.categoryId })
         let total = transactions.reduce(0) { $0 + $1.amount }
         guard total > 0 else { return [] }
@@ -608,19 +636,18 @@ private struct PieSlice: View {
             let size = min(geometry.size.width, geometry.size.height)
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
             let radius = size / 2
+            let gap: Double = 2
 
             Path { path in
-                path.move(to: center)
                 path.addArc(
                     center: center,
                     radius: radius,
-                    startAngle: startAngle,
-                    endAngle: endAngle,
+                    startAngle: startAngle + .degrees(gap),
+                    endAngle: endAngle - .degrees(gap),
                     clockwise: false
                 )
-                path.closeSubpath()
             }
-            .fill(color)
+            .stroke(color, style: StrokeStyle(lineWidth: 10, lineCap: .round))
         }
     }
 }

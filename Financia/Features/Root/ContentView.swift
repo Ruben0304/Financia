@@ -14,9 +14,10 @@ struct ContentView: View {
     @EnvironmentObject var exchangeRateManager: ExchangeRateManager
     @EnvironmentObject var profileManager: ProfileManager
     @EnvironmentObject var wealthManager: WealthManager
+    @EnvironmentObject var expenseAnalysisManager: ExpenseAnalysisManager
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Color(.systemBackground)
 
             if invitationValidated {
@@ -26,9 +27,19 @@ struct ContentView: View {
                 InvitationAccessView()
                     .transition(.opacity)
             }
+
+            // Notification banner
+            if expenseAnalysisManager.showNotification {
+                AINotificationBanner()
+                    .padding(.top, 60)
+                    .padding(.horizontal, 16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(100)
+            }
         }
         .ignoresSafeArea()
         .tint(accentColor)
+        .animation(.easeInOut(duration: 0.4), value: expenseAnalysisManager.showNotification)
         .animation(.easeInOut(duration: 0.55), value: invitationValidated)
         .sheet(item: $entrySheetKind) { kind in
             AddEntrySheet(kind: kind) { result in
@@ -102,6 +113,47 @@ struct ContentView: View {
 
     private var accentColor: Color {
         Color(hex: profileManager.profile.accentColorHex ?? "FF5C00")
+    }
+}
+
+// MARK: - AI Notification Banner
+
+struct AINotificationBanner: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 40, height: 40)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("FinancIA")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Text("Análisis de gasto listo")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "C026D3"), Color(hex: "7E22CE")],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .shadow(color: Color(hex: "C026D3").opacity(0.45), radius: 14, x: 0, y: 6)
+        )
     }
 }
 

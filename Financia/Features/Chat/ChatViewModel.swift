@@ -13,15 +13,27 @@ class ChatViewModel: ObservableObject {
     private let chatService: ChatService
     private let transactionManager: TransactionManager
     private let exchangeRateManager: ExchangeRateManager
+    private let walletManager: WalletManager
+    private let debtManager: DebtManager
+    private let savingsManager: SavingsGoalManager
+    private let profileManager: ProfileManager
 
     init(
         chatService: ChatService = ChatService(),
         transactionManager: TransactionManager = .shared,
-        exchangeRateManager: ExchangeRateManager = .shared
+        exchangeRateManager: ExchangeRateManager = .shared,
+        walletManager: WalletManager = .shared,
+        debtManager: DebtManager = .shared,
+        savingsManager: SavingsGoalManager = .shared,
+        profileManager: ProfileManager = .shared
     ) {
         self.chatService = chatService
         self.transactionManager = transactionManager
         self.exchangeRateManager = exchangeRateManager
+        self.walletManager = walletManager
+        self.debtManager = debtManager
+        self.savingsManager = savingsManager
+        self.profileManager = profileManager
     }
 
     /// Envía un mensaje al chat incluyendo el contexto de transacciones
@@ -149,6 +161,53 @@ class ChatViewModel: ObservableObject {
             context += "Total ingresos: $\(String(format: "%.2f", totalIncome))\n"
             context += "Total gastos: $\(String(format: "%.2f", totalExpenses))\n"
             context += "Balance: $\(String(format: "%.2f", totalIncome - totalExpenses))\n"
+        }
+
+        // Carteras
+        context += "\n=== CARTERAS ===\n"
+        for wallet in walletManager.wallets {
+            let balance = walletManager.calculateBalance(for: wallet)
+            context += "- \(wallet.name) (\(wallet.currency.rawValue)): \(String(format: "%.2f", balance))\n"
+        }
+
+        // Deudas
+        context += "\n=== DEUDAS ===\n"
+        if debtManager.debts.isEmpty {
+            context += "Sin deudas registradas.\n"
+        } else {
+            for debt in debtManager.debts {
+                context += "- \(debt.nombre): \(String(format: "%.2f", debt.monto)) \(debt.moneda.rawValue)"
+                if let plazo = debt.plazoMeses {
+                    context += " (plazo: \(plazo) meses)"
+                }
+                context += " — Motivo: \(debt.motivo)\n"
+            }
+        }
+
+        // Metas de ahorro
+        context += "\n=== METAS DE AHORRO ===\n"
+        if savingsManager.savingsGoals.isEmpty {
+            context += "Sin metas de ahorro.\n"
+        } else {
+            for goal in savingsManager.savingsGoals {
+                let pct = goal.precioObjetivo > 0 ? (goal.ahorrado / goal.precioObjetivo) * 100 : 0
+                context += "- \(goal.nombre): \(String(format: "%.2f", goal.ahorrado))/\(String(format: "%.2f", goal.precioObjetivo)) \(goal.moneda.rawValue) (\(String(format: "%.0f", pct))%)\n"
+            }
+        }
+
+        // Perfil del usuario
+        let profile = profileManager.profile
+        if !profile.nombre.isEmpty || !profile.situacionFinanciera.isEmpty || !profile.estrategiaFinanciera.isEmpty {
+            context += "\n=== PERFIL DEL USUARIO ===\n"
+            if !profile.nombre.isEmpty {
+                context += "Nombre: \(profile.nombre)\n"
+            }
+            if !profile.situacionFinanciera.isEmpty {
+                context += "Situación financiera: \(profile.situacionFinanciera)\n"
+            }
+            if !profile.estrategiaFinanciera.isEmpty {
+                context += "Estrategia financiera: \(profile.estrategiaFinanciera)\n"
+            }
         }
 
         return context

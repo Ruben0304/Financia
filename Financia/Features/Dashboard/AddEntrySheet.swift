@@ -638,6 +638,10 @@ struct AddEntrySheet: View {
 
         transactionManager.addTransaction(transaction)
 
+        if transaction.type == .expense {
+            ExpenseAnalysisManager.shared.analyzeExpense(transaction: transaction)
+        }
+
         let categoryAndDescription = description.isEmpty ? finalSubcategory.name : "\(finalSubcategory.name) - \(description)"
         let result = FinanceEntrySheetResult(
             amount: amount,
