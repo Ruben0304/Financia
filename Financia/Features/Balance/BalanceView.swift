@@ -22,6 +22,7 @@ struct BalanceView: View {
     @State private var isAddingDebt: Bool = false
     @State private var repeatErrorMessage: String?
     @State private var isShowingRepeatError = false
+    @State private var isAnalysisExpanded: Bool = false
 
     var body: some View {
         ZStack {
@@ -140,10 +141,22 @@ struct BalanceView: View {
                         .foregroundColor(.white.opacity(0.75))
                 }
             } else if let analysis = expenseAnalysisManager.lastAnalysis {
-                Text(analysis)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(4)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(analysis)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.9))
+                        .lineLimit(isAnalysisExpanded ? nil : 4)
+                        .animation(.easeInOut(duration: 0.25), value: isAnalysisExpanded)
+
+                    Button {
+                        isAnalysisExpanded.toggle()
+                    } label: {
+                        Text(isAnalysisExpanded ? "Ver menos" : "Ver más")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.75))
+                            .underline()
+                    }
+                }
             }
         }
         .padding(16)

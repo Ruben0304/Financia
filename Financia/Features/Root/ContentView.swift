@@ -58,6 +58,14 @@ struct ContentView: View {
         }) { data in
             ReceiptReviewView(data: data)
         }
+        .onOpenURL { url in
+            guard invitationValidated else { return }
+            if url.host == "add-expense" {
+                entrySheetKind = .expense
+            } else if url.host == "add-income" {
+                entrySheetKind = .income
+            }
+        }
     }
 
     private var authenticatedTabs: some View {

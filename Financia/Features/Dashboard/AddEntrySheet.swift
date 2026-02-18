@@ -60,7 +60,7 @@ struct AddEntrySheet: View {
     @State private var didInitialize: Bool = false
     @State private var selectedTransactionCategory: TransactionCategory?
     @State private var selectedSubcategory: Subcategory?
-    @State private var showingAddSubcategoryAlert = false
+    @State private var showingAddSubcategoryForm = false
     @State private var newSubcategoryName = ""
     @State private var categoryToAddTo: TransactionCategory?
     @State private var isAddingCategory = false
@@ -144,29 +144,6 @@ struct AddEntrySheet: View {
         }
         .sheet(isPresented: $showingCategoryPicker) {
             categoryPickerSheet
-        }
-        .sheet(isPresented: $isAddingCategory) {
-            AddCategoryView { newCategory in
-                if selectedEntryType == .income {
-                    categoryManager.addIncomeCategory(newCategory)
-                } else {
-                    categoryManager.addExpenseCategory(newCategory)
-                }
-                selectedTransactionCategory = newCategory
-                selectedSubcategory = newCategory.subcategories.first
-            }
-        }
-        .alert("Nueva Subcategoría", isPresented: $showingAddSubcategoryAlert) {
-            TextField("Nombre", text: $newSubcategoryName)
-            Button("Guardar") {
-                if let category = categoryToAddTo, !newSubcategoryName.isEmpty {
-                    addSubcategory(to: category, with: newSubcategoryName)
-                    newSubcategoryName = ""
-                }
-            }
-            Button("Cancelar", role: .cancel) {
-                newSubcategoryName = ""
-            }
         }
     }
 
@@ -568,7 +545,7 @@ struct AddEntrySheet: View {
                             },
                             onAddSubcategory: { category in
                                 categoryToAddTo = category
-                                showingAddSubcategoryAlert = true
+                                showingAddSubcategoryForm = true
                             }
                         )
                         .padding()
@@ -584,6 +561,24 @@ struct AddEntrySheet: View {
                     }
                 }
             }
+            .navigationDestination(isPresented: $isAddingCategory) {
+                AddCategoryView { newCategory in
+                    if selectedEntryType == .income {
+                        categoryManager.addIncomeCategory(newCategory)
+                    } else {
+                        categoryManager.addExpenseCategory(newCategory)
+                    }
+                    selectedTransactionCategory = newCategory
+                    selectedSubcategory = newCategory.subcategories.first
+                }
+            }
+            .navigationDestination(isPresented: $showingAddSubcategoryForm) {
+                AddSubcategoryFormView(categoryName: categoryToAddTo?.name ?? "") { name in
+                    if let category = categoryToAddTo, !name.isEmpty {
+                        addSubcategory(to: category, with: name)
+                    }
+                }
+            }
         }
     }
 
@@ -594,6 +589,7 @@ struct AddEntrySheet: View {
         categoryManager.addSubcategory(newSubcategory, to: category, isIncome: isIncome)
         selectedSubcategory = newSubcategory
         selectedTransactionCategory = category
+        newSubcategoryName = ""
     }
 
     private func handleSave() {
