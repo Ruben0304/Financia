@@ -2,12 +2,11 @@ import SwiftUI
 import UIKit
 
 struct SubscriptionsSectionView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
 
     @State private var quickFilter: SubscriptionQuickFilter = .all
-    @State private var editingSubscription: Subscription?
-    @State private var showingNewSubscription = false
-    @State private var showingTemplates = false
+    @State private var navigationPath = NavigationPath()
     @State private var errorMessage: String?
     @State private var showingError = false
 
@@ -26,57 +25,68 @@ struct SubscriptionsSectionView: View {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    private var allActiveSubscriptions: [Subscription] {
+        subscriptionManager.subscriptions.filter(\.isActive)
+    }
+
+    private var upcomingThisWeekCount: Int {
+        allActiveSubscriptions.filter(isInUpcomingWeek(_:)).count
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            filterTabs
+        NavigationStack(path: $navigationPath) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    summaryCard
+                    filterTabs
 
-            if activeSubscriptions.isEmpty && cancelledSubscriptions.isEmpty {
-                Text("No tienes suscripciones registradas")
-                    .font(.system(size: 13))
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 16)
-            } else {
-                if !activeSubscriptions.isEmpty {
-                    sectionTitle("Activas")
-                    VStack(spacing: 10) {
-                        ForEach(activeSubscriptions) { subscription in
-                            subscriptionRow(subscription)
+                    if activeSubscriptions.isEmpty && cancelledSubscriptions.isEmpty {
+                        emptyState
+                    } else {
+                        if !activeSubscriptions.isEmpty {
+                            sectionTitle("Activas")
+                            VStack(spacing: 12) {
+                                ForEach(activeSubscriptions) { subscription in
+                                    subscriptionRow(subscription)
+                                }
+                            }
+                        }
+
+                        if quickFilter == .all && !cancelledSubscriptions.isEmpty {
+                            sectionTitle("Canceladas")
+                            VStack(spacing: 12) {
+                                ForEach(cancelledSubscriptions) { subscription in
+                                    subscriptionRow(subscription)
+                                }
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+            .background(DarkFinanceBackground())
+            .navigationTitle("Suscripciones")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") { dismiss() }
+                }
 
-                if quickFilter == .all && !cancelledSubscriptions.isEmpty {
-                    sectionTitle("Canceladas")
-                    VStack(spacing: 10) {
-                        ForEach(cancelledSubscriptions) { subscription in
-                            subscriptionRow(subscription)
-                        }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Plantillas") {
+                        navigationPath.append(SubscriptionSheetRoute.templates)
+                    }
+
+                    Button {
+                        navigationPath.append(SubscriptionSheetRoute.new)
+                    } label: {
+                        Image(systemName: "plus")
                     }
                 }
             }
-        }
-        .darkFinanceCard(cornerRadius: 20, padding: 20)
-        .sheet(isPresented: $showingNewSubscription) {
-            NavigationStack {
-                SubscriptionEditorView { subscription in
-                    subscriptionManager.addSubscription(subscription)
-                }
-            }
-        }
-        .sheet(item: $editingSubscription) { subscription in
-            NavigationStack {
-                SubscriptionEditorView(subscription: subscription) { updated in
-                    subscriptionManager.updateSubscription(updated)
-                } onDelete: { deleting in
-                    subscriptionManager.deleteSubscription(deleting)
-                }
-            }
-        }
-        .sheet(isPresented: $showingTemplates) {
-            NavigationStack {
-                SubscriptionTemplatesView()
+            .navigationDestination(for: SubscriptionSheetRoute.self) { route in
+                destinationView(for: route)
             }
         }
         .alert("No se pudo registrar", isPresented: $showingError, actions: {
@@ -86,29 +96,43 @@ struct SubscriptionsSectionView: View {
         })
     }
 
-    private var header: some View {
-        HStack {
-            Text("Suscripciones")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(DarkFinanceColors.primaryText)
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Controla tus pagos recurrentes y regístralos cuando toque.")
+                .font(DarkFinanceTypography.body(size: 14))
+                .foregroundColor(DarkFinanceColors.secondaryText)
 
-            Spacer()
+            HStack(spacing: 12) {
+                summaryMetric(
+                    title: "Activas",
+                    value: "\(allActiveSubscriptions.count)",
+                    accent: DarkFinanceColors.primaryAccent
+                )
 
-            Button("Plantillas") {
-                showingTemplates = true
+                summaryMetric(
+                    title: "Esta semana",
+                    value: "\(upcomingThisWeekCount)",
+                    accent: DarkFinanceColors.successGreen
+                )
+
+                summaryMetric(
+                    title: "Mensual",
+                    value: monthlyTotalText,
+                    accent: DarkFinanceColors.primaryText
+                )
             }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(DarkFinanceColors.primaryAccent)
-
-            Button {
-                showingNewSubscription = true
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(DarkFinanceColors.primaryAccent)
-            }
-            .buttonStyle(.plain)
         }
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
+    private var monthlyTotalText: String {
+        let grouped = Dictionary(grouping: allActiveSubscriptions, by: \.currency)
+        let parts = Currency.allCases.compactMap { currency -> String? in
+            let total = grouped[currency, default: []].reduce(0) { $0 + $1.userExpenseAmount }
+            guard total > 0 else { return nil }
+            return total.formatted(.currency(code: currency.rawValue).precision(.fractionLength(0)))
+        }
+        return parts.isEmpty ? "0" : parts.joined(separator: " + ")
     }
 
     private var filterTabs: some View {
@@ -120,113 +144,134 @@ struct SubscriptionsSectionView: View {
         .pickerStyle(.segmented)
     }
 
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "rectangle.stack.badge.person.crop")
+                .font(.system(size: 30, weight: .medium))
+                .foregroundColor(DarkFinanceColors.tertiaryText)
+            Text("No tienes suscripciones registradas")
+                .font(DarkFinanceTypography.emphasis(size: 15))
+                .foregroundColor(DarkFinanceColors.primaryText)
+            Text("Añade una suscripción o usa una plantilla para empezar.")
+                .font(DarkFinanceTypography.body(size: 13))
+                .foregroundColor(DarkFinanceColors.secondaryText)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .semibold))
+            .font(DarkFinanceTypography.action(size: 12, weight: .semibold))
             .foregroundColor(DarkFinanceColors.secondaryText)
     }
 
     private func subscriptionRow(_ subscription: Subscription) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                SubscriptionLogoView(subscription: subscription, size: 36)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                SubscriptionLogoView(subscription: subscription, size: 40)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(subscription.platformName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(DarkFinanceTypography.emphasis(size: 15))
                         .foregroundColor(DarkFinanceColors.primaryText)
                     Text(subscription.planName)
-                        .font(.system(size: 12))
+                        .font(DarkFinanceTypography.body(size: 12))
                         .foregroundColor(DarkFinanceColors.secondaryText)
                 }
 
                 Spacer()
 
-                Text(subscription.userExpenseAmount, format: .currency(code: subscription.currency.rawValue))
-                    .font(DarkFinanceTypography.monoAmount(size: 13, weight: .semibold))
-                    .foregroundColor(subscription.isActive ? DarkFinanceColors.errorRed : DarkFinanceColors.secondaryText)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(subscription.userExpenseAmount, format: .currency(code: subscription.currency.rawValue).precision(.fractionLength(0)))
+                        .font(DarkFinanceTypography.monoAmount(size: 14, weight: .semibold))
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                    Text(subscription.isActive ? "Día \(subscription.billingDay)" : "Cancelada")
+                        .font(DarkFinanceTypography.body(size: 11))
+                        .foregroundColor(DarkFinanceColors.tertiaryText)
+                }
             }
 
             HStack(spacing: 8) {
-                labelChip("Pago: día \(subscription.billingDay)")
-                if subscription.isShared {
-                    let shareText = subscription.splitEqually
-                        ? "Compartida: \(subscription.sharedPeopleCount)"
-                        : "Tu parte personalizada"
-                    labelChip(shareText)
-                }
-                if let format = subscription.logoImageFormat, !format.isEmpty {
-                    labelChip(format.uppercased())
-                }
-            }
-
-            HStack(spacing: 10) {
-                Button {
+                actionPill(title: "Registrar", systemImage: "plus") {
                     let result = subscriptionManager.registerAsExpense(subscription)
                     if case let .failure(error) = result {
                         errorMessage = error.errorDescription
                         showingError = true
                     }
-                } label: {
-                    Label("Agregar gasto", systemImage: "plus.circle")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(DarkFinanceColors.errorRed)
-                        )
                 }
-                .buttonStyle(.plain)
                 .disabled(!subscription.isActive)
                 .opacity(subscription.isActive ? 1.0 : 0.45)
 
-                Button {
+                actionPill(title: subscription.isActive ? "Cancelar" : "Inactiva", systemImage: "xmark") {
                     if subscription.isActive {
                         subscriptionManager.cancelSubscription(subscription)
                     }
-                } label: {
-                    Label("Cancelar", systemImage: "xmark.circle")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(subscription.isActive ? DarkFinanceColors.secondaryText : DarkFinanceColors.tertiaryText)
                 }
-                .buttonStyle(.plain)
                 .disabled(!subscription.isActive)
+                .opacity(subscription.isActive ? 1.0 : 0.45)
 
-                Spacer()
-
-                Button {
-                    editingSubscription = subscription
-                } label: {
-                    Label("Editar", systemImage: "pencil")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DarkFinanceColors.primaryAccent)
+                actionPill(title: "Editar", systemImage: "pencil") {
+                    navigationPath.append(SubscriptionSheetRoute.edit(subscription))
                 }
-                .buttonStyle(.plain)
             }
         }
+        .darkFinanceCard(cornerRadius: 18, padding: 16)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            navigationPath.append(SubscriptionSheetRoute.detail(subscription))
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(for route: SubscriptionSheetRoute) -> some View {
+        switch route {
+        case .new:
+            SubscriptionEditorView { subscription in
+                subscriptionManager.addSubscription(subscription)
+            }
+        case let .edit(subscription):
+            SubscriptionEditorView(subscription: subscription) { updated in
+                subscriptionManager.updateSubscription(updated)
+            } onDelete: { deleting in
+                subscriptionManager.deleteSubscription(deleting)
+            }
+        case let .detail(subscription):
+            SubscriptionDetailView(subscription: subscription)
+        case .templates:
+            SubscriptionTemplatesView()
+        }
+    }
+
+    private func summaryMetric(title: String, value: String, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(DarkFinanceTypography.body(size: 11))
+                .foregroundColor(DarkFinanceColors.tertiaryText)
+            Text(value)
+                .font(DarkFinanceTypography.monoAmount(size: 15, weight: .semibold))
+                .foregroundColor(accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(hex: "161619"))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(DarkFinanceColors.cardBorder, lineWidth: 1)
-                )
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(DarkFinanceColors.inputBackground)
         )
     }
 
-    private func labelChip(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(DarkFinanceColors.secondaryText)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(Color(hex: "1D1D21"))
-            )
+    @ViewBuilder
+    private func actionPill(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(DarkFinanceTypography.action(size: 12, weight: .semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
     }
 
     private func isInUpcomingWeek(_ subscription: Subscription) -> Bool {
@@ -264,6 +309,13 @@ struct SubscriptionsSectionView: View {
         components.day = clampedDay
         return calendar.date(from: components)
     }
+}
+
+private enum SubscriptionSheetRoute: Hashable {
+    case new
+    case edit(Subscription)
+    case detail(Subscription)
+    case templates
 }
 
 private struct SubscriptionLogoView: View {
@@ -320,6 +372,75 @@ private enum SubscriptionQuickFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: return "Todas"
         case .thisWeek: return "Esta semana"
+        }
+    }
+}
+
+private struct SubscriptionDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    let subscription: Subscription
+
+    var body: some View {
+        List {
+            Section("Suscripción") {
+                HStack(spacing: 12) {
+                    SubscriptionLogoView(subscription: subscription, size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(subscription.platformName)
+                            .font(.headline)
+                        Text(subscription.planName)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Section("Pago") {
+                detailRow("Precio mensual", subscription.userExpenseAmount.formatted(.currency(code: subscription.currency.rawValue)))
+                detailRow("Día de pago", "Día \(subscription.billingDay)")
+                if let format = subscription.logoImageFormat, !format.isEmpty {
+                    detailRow("Formato del logo", format.uppercased())
+                }
+            }
+
+            Section("Compartición") {
+                detailRow("Compartida", subscription.isShared ? "Sí" : "No")
+                if subscription.isShared {
+                    detailRow("Personas", "\(subscription.sharedPeopleCount)")
+                    detailRow("División", subscription.splitEqually ? "Partes iguales" : "Personalizada")
+                    if !subscription.splitEqually {
+                        let amount = subscription.personalShareAmount ?? subscription.userExpenseAmount
+                        detailRow("Tu parte", amount.formatted(.currency(code: subscription.currency.rawValue)))
+                    }
+                }
+            }
+        }
+        .navigationTitle("Detalle")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cerrar") { dismiss() }
+            }
+        }
+    }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func ifAvailableIOS26Glass() -> some View {
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
         }
     }
 }
@@ -471,9 +592,6 @@ private struct SubscriptionEditorView: View {
         }
         .navigationTitle(original == nil ? "Nueva suscripción" : "Editar suscripción")
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancelar") { dismiss() }
-            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Guardar") {
                     onSave(buildSubscription())
@@ -485,7 +603,7 @@ private struct SubscriptionEditorView: View {
         .sheet(isPresented: $showingPhotoPicker) {
             PhotoLibraryImagePicker(image: $selectedLocalImage)
         }
-        .onChange(of: selectedLocalImage) { image in
+        .onChange(of: selectedLocalImage) { _, image in
             guard let image else { return }
             if let png = image.pngData() {
                 logoImageData = png
@@ -595,14 +713,15 @@ private struct SubscriptionEditorView: View {
     }
 
     private func buildSubscription() -> Subscription {
-        Subscription(
+        let hasLocalLogoData = logoImageData != nil
+        return Subscription(
             id: original?.id ?? UUID(),
             platformName: platformName.trimmingCharacters(in: .whitespacesAndNewlines),
             planName: planName.trimmingCharacters(in: .whitespacesAndNewlines),
             price: price,
             currency: currency,
             logoImageData: logoImageData,
-            logoURLString: logoURLString,
+            logoURLString: hasLocalLogoData ? nil : logoURLString,
             logoImageFormat: logoImageFormat,
             isShared: isShared,
             sharedPeopleCount: isShared ? sharedPeopleCount : 1,
@@ -646,7 +765,8 @@ private struct SubscriptionEditorView: View {
 
             await MainActor.run {
                 logoImageData = data
-                logoURLString = result.imageURL.absoluteString
+                // Persistimos localmente para no depender de la URL remota.
+                logoURLString = nil
                 logoImageFormat = detectedFormat
             }
         } catch {

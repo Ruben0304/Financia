@@ -12,6 +12,42 @@ enum FinanceEntryFlow: Identifiable {
     }
 }
 
+// MARK: - Add Subcategory Form
+
+private struct AddSubcategoryFormView: View {
+    @Environment(\.dismiss) private var dismiss
+    let categoryName: String
+    var onSave: (String) -> Void
+
+    @State private var name = ""
+
+    var body: some View {
+        Form {
+            Section("Categoría") {
+                Text(categoryName)
+                    .foregroundColor(.secondary)
+            }
+            Section("Nombre") {
+                TextField("Nombre de la subcategoría", text: $name)
+            }
+        }
+        .navigationTitle("Nueva Subcategoría")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancelar") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Guardar") {
+                    onSave(name)
+                    dismiss()
+                }
+                .disabled(name.isEmpty)
+            }
+        }
+    }
+}
+
 enum IncomeSourceSelection: String, CaseIterable, Identifiable {
     case none = "Ninguno"
     case job = "Trabajo"
@@ -47,6 +83,7 @@ struct AddEntrySheet: View {
     let allowsEntryTypeToggle: Bool
     let autoSelectWallet: Bool
     let autoSelectCategory: Bool
+    let preferredWalletId: UUID?
     let onCompletion: (FinanceEntrySheetResult) -> Void
 
     @State private var amount: Double = 0
@@ -72,12 +109,21 @@ struct AddEntrySheet: View {
     @State private var selectedJob: Job?
     @State private var selectedLiability: Liability?
 
+    private var unselectedTypeGradient: LinearGradient {
+        LinearGradient(
+            colors: [DarkFinanceColors.inputBackground],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
     init(
         kind: FinanceEntryFlow,
         prefill: ReceiptPrefill? = nil,
         allowsEntryTypeToggle: Bool = true,
         autoSelectWallet: Bool = true,
         autoSelectCategory: Bool = true,
+        preferredWalletId: UUID? = nil,
         onCompletion: @escaping (FinanceEntrySheetResult) -> Void
     ) {
         self.kind = kind
@@ -85,48 +131,76 @@ struct AddEntrySheet: View {
         self.allowsEntryTypeToggle = allowsEntryTypeToggle
         self.autoSelectWallet = autoSelectWallet
         self.autoSelectCategory = autoSelectCategory
+        self.preferredWalletId = preferredWalletId
         self.onCompletion = onCompletion
         _selectedEntryType = State(initialValue: kind)
     }
 
     var body: some View {
-        ZStack {
-            DarkFinanceBackground()
+        NavigationStack {
+            ZStack {
+                DarkFinanceBackground()
 
-            VStack(spacing: 0) {
-                headerView
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
+                VStack(spacing: 0) {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 20) {
+                            if allowsEntryTypeToggle {
+                                typeToggle
+                            }
+                            amountSection
+                            formFields
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 20) {
-                        typeToggle
-                        amountSection
-                        formFields
+                            if prefill != nil {
+                                receiptSection
+                            }
 
-                        if prefill != nil {
-                            receiptSection
+                            Spacer(minLength: 100)
                         }
-
-                        Spacer(minLength: 100)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                        .padding(.bottom, 120)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 120)
+
+                    saveButton
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+                        .padding(.bottom, 16)
+                        .background(DarkFinanceColors.cardBackground)
+                }
+            }
+            .navigationTitle(entrySheetTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .title) {
+                    Text(entrySheetTitle)
+                        .darkFinanceToolbarTitle(size: 22)
+                        .foregroundColor(DarkFinanceColors.primaryText)
                 }
 
-                saveButton
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                    .padding(.bottom, 16)
-                    .background(DarkFinanceColors.cardBackground)
+                ToolbarItem(placement: .subtitle) {
+                    Text(entrySheetSubtitle)
+                        .darkFinanceToolbarSubtitle(size: 12, weight: .medium)
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        presentationMode.wrappedValue.dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(DarkFinanceColors.primaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .onAppear(perform: initializeIfNeeded)
-        .onChange(of: selectedEntryType) { newType in
+        .onChange(of: selectedEntryType) {
             guard autoSelectCategory else { return }
-            setDefaultCategory(for: newType)
-            if newType == .income {
+            setDefaultCategory(for: selectedEntryType)
+            if selectedEntryType == .income {
                 selectedLiability = nil
             } else {
                 incomeSourceSelection = .none
@@ -134,11 +208,11 @@ struct AddEntrySheet: View {
                 selectedJob = nil
             }
         }
-        .onChange(of: incomeSourceSelection) { newValue in
-            if newValue != .asset {
+        .onChange(of: incomeSourceSelection) {
+            if incomeSourceSelection != .asset {
                 selectedAsset = nil
             }
-            if newValue != .job {
+            if incomeSourceSelection != .job {
                 selectedJob = nil
             }
         }
@@ -147,27 +221,14 @@ struct AddEntrySheet: View {
         }
     }
 
-    // MARK: - Header
-    private var headerView: some View {
-        HStack {
-            Button {
-                presentationMode.wrappedValue.dismiss()
-            } label: {
-                Image(systemName: "arrow.left")
-                    .font(.system(size: 20))
-                    .foregroundColor(DarkFinanceColors.primaryText)
-            }
+    private var entrySheetTitle: String {
+        selectedEntryType == .income ? "Nuevo ingreso" : "Nuevo gasto"
+    }
 
-            Spacer()
-
-            Text("Nuevo Registro")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(DarkFinanceColors.primaryText)
-
-            Spacer()
-
-            Color.clear.frame(width: 24, height: 24)
-        }
+    private var entrySheetSubtitle: String {
+        selectedEntryType == .income
+            ? "Registra una entrada con contexto y destino"
+            : "Registra un gasto con categoria, cuenta y detalle"
     }
 
     // MARK: - Type Toggle
@@ -183,7 +244,11 @@ struct AddEntrySheet: View {
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(selectedEntryType == .income ? DarkFinanceColors.successGradient : LinearGradient(colors: [Color(hex: "1A1A1D")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .fill(selectedEntryType == .income ? DarkFinanceColors.successGradient : unselectedTypeGradient)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(selectedEntryType == .income ? Color.clear : DarkFinanceColors.inputBorder, lineWidth: 1)
+                            )
                     )
             }
             .buttonStyle(.plain)
@@ -198,10 +263,10 @@ struct AddEntrySheet: View {
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(selectedEntryType == .expense ? LinearGradient(colors: [DarkFinanceColors.errorRed], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [Color(hex: "1A1A1D")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .fill(selectedEntryType == .expense ? LinearGradient(colors: [DarkFinanceColors.errorRed], startPoint: .topLeading, endPoint: .bottomTrailing) : unselectedTypeGradient)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .stroke(selectedEntryType == .expense ? Color.clear : Color(hex: "2A2A2E"), lineWidth: 1)
+                                    .stroke(selectedEntryType == .expense ? Color.clear : DarkFinanceColors.inputBorder, lineWidth: 1)
                             )
                     )
             }
@@ -243,8 +308,7 @@ struct AddEntrySheet: View {
                 } label: {
                     HStack {
                         if let category = selectedTransactionCategory, let subcategory = selectedSubcategory {
-                            Image(systemName: category.icon)
-                                .foregroundColor(category.color)
+                            CategoryIconView(icon: category.icon, color: category.color, size: 15)
                             Text(subcategory.name)
                                 .foregroundColor(DarkFinanceColors.primaryText)
                         } else {
@@ -412,7 +476,6 @@ struct AddEntrySheet: View {
                 )
                 .datePickerStyle(.compact)
                 .labelsHidden()
-                .colorScheme(.dark)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .darkInputStyle()
             }
@@ -489,7 +552,11 @@ struct AddEntrySheet: View {
                     .padding(12)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(hex: "1A1A1D"))
+                            .fill(DarkFinanceColors.inputBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(DarkFinanceColors.inputBorder, lineWidth: 1)
+                            )
                     )
                 }
             }
@@ -531,12 +598,23 @@ struct AddEntrySheet: View {
     private var categoryPickerSheet: some View {
         NavigationStack {
             ZStack {
-                DarkFinanceBackground()
+                DarkFinanceColors.background.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 16) {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        // Search / title area
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Selecciona una categoría")
+                                .font(.system(size: 13))
+                                .foregroundColor(DarkFinanceColors.tertiaryText)
+                                .textCase(.uppercase)
+                                .tracking(0.5)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+
                         CategoryGridSelector(
-                            title: "Selecciona categoría",
+                            title: "",
                             categories: selectedEntryType == .income ? categoryManager.incomeCategories : categoryManager.expenseCategories,
                             selectedCategory: $selectedTransactionCategory,
                             selectedSubcategory: $selectedSubcategory,
@@ -546,10 +624,15 @@ struct AddEntrySheet: View {
                             onAddSubcategory: { category in
                                 categoryToAddTo = category
                                 showingAddSubcategoryForm = true
+                            },
+                            onDismiss: {
+                                showingCategoryPicker = false
                             }
                         )
-                        .padding()
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 40)
                 }
             }
             .navigationTitle("Categoría")
@@ -559,6 +642,7 @@ struct AddEntrySheet: View {
                     Button("Cerrar") {
                         showingCategoryPicker = false
                     }
+                    .foregroundColor(DarkFinanceColors.secondaryText)
                 }
             }
             .navigationDestination(isPresented: $isAddingCategory) {
@@ -580,6 +664,8 @@ struct AddEntrySheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     // MARK: - Functions
@@ -588,7 +674,7 @@ struct AddEntrySheet: View {
         let isIncome = selectedEntryType == .income
         categoryManager.addSubcategory(newSubcategory, to: category, isIncome: isIncome)
         selectedSubcategory = newSubcategory
-        selectedTransactionCategory = category
+        selectedTransactionCategory = categoryManager.category(withId: category.id, isIncome: isIncome)
         newSubcategoryName = ""
     }
 
@@ -653,7 +739,7 @@ struct AddEntrySheet: View {
         didInitialize = true
 
         if autoSelectWallet {
-            selectedWallet = walletManager.wallets.first
+            selectedWallet = preferredWalletId.flatMap { walletManager.wallet(withId: $0) } ?? walletManager.wallets.first
         }
 
         if autoSelectCategory {

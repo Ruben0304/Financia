@@ -3,6 +3,7 @@ import LinkPresentation
 
 struct SavingsGoalDetailView: View {
     @EnvironmentObject var savingsGoalManager: SavingsGoalManager
+    @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var wealthManager: WealthManager
     @EnvironmentObject var profileManager: ProfileManager
 
@@ -29,12 +30,57 @@ struct SavingsGoalDetailView: View {
         wealthManager.forecastedMonthlyIncome(in: currentGoal.moneda)
     }
 
+    private var totalDisponibleActual: Double {
+        walletManager.wallets
+            .filter { $0.currency == currentGoal.moneda }
+            .reduce(0) { partialResult, wallet in
+                partialResult + walletManager.calculateBalance(for: wallet)
+            }
+    }
+
+    private var reservadoActualPorOtrasMetas: Double {
+        savingsGoalManager.totalProjectedCurrentReservation(
+            in: currentGoal.moneda,
+            availableCurrent: totalDisponibleActual,
+            excludingGoalId: currentGoal.id
+        )
+    }
+
+    private var disponibleActualParaEstaMeta: Double {
+        max(totalDisponibleActual - reservadoActualPorOtrasMetas, 0)
+    }
+
+    private var maxPorcentajeInicialDisponible: Double {
+        guard totalDisponibleActual > 0 else { return 0 }
+        return min((disponibleActualParaEstaMeta / totalDisponibleActual) * 100, 100)
+    }
+
+    private var maxCantidadPronosticoPorCobro: Double {
+        let validEvents = incomeEvents.filter { $0.amount > 0 }
+        guard !validEvents.isEmpty else { return 0 }
+
+        return validEvents.reduce(Double.greatestFiniteMagnitude) { partialResult, income in
+            min(partialResult, max(income.amount - reservedForecastAmountByOtherGoals(for: income), 0))
+        }
+    }
+
+    private var maxPorcentajePronosticoDisponible: Double {
+        let validEvents = incomeEvents.filter { $0.amount > 0 }
+        guard !validEvents.isEmpty else { return 0 }
+
+        return validEvents.reduce(100.0) { partialResult, income in
+            let availableAmount = max(income.amount - reservedForecastAmountByOtherGoals(for: income), 0)
+            let availablePercentage = income.amount > 0 ? (availableAmount / income.amount) * 100 : 0
+            return min(partialResult, availablePercentage)
+        }
+    }
+
     private var aporteInicialProyectado: Double {
         switch aporteInicialMode {
         case .percentage:
-            return max(baseInicialManual, 0) * (aporteInicialPorcentaje / 100)
+            return max(totalDisponibleActual, 0) * (aporteInicialPorcentaje / 100)
         case .manualAmount:
-            return max(aporteInicialCantidadManual, 0)
+            return min(max(aporteInicialCantidadManual, 0), disponibleActualParaEstaMeta)
         }
     }
 
@@ -47,8 +93,25 @@ struct SavingsGoalDetailView: View {
         }
     }
 
+    private var progresoVisualActual: Double {
+        min(max(aporteInicialProyectado, 0), currentGoal.precioObjetivo)
+    }
+
+    private var porcentajeCompletadoVisual: Double {
+        guard currentGoal.precioObjetivo > 0 else { return 0 }
+        return min((progresoVisualActual / currentGoal.precioObjetivo) * 100, 100)
+    }
+
+    private var montoPendienteVisual: Double {
+        max(currentGoal.precioObjetivo - progresoVisualActual, 0)
+    }
+
+    private var metaAlcanzadaVisualmente: Bool {
+        progresoVisualActual >= currentGoal.precioObjetivo
+    }
+
     private var tiempoRestanteTexto: String {
-        if currentGoal.alcanzado {
+        if metaAlcanzadaVisualmente {
             return "Meta alcanzada"
         }
 
@@ -59,7 +122,7 @@ struct SavingsGoalDetailView: View {
     }
 
     private var fechaEstimadaTexto: String {
-        if currentGoal.alcanzado {
+        if metaAlcanzadaVisualmente {
             return "Disponible ahora"
         }
         if let projection = projectedGoalDate {
@@ -69,7 +132,7 @@ struct SavingsGoalDetailView: View {
     }
 
     private var fechaEstimadaCortaTexto: String? {
-        guard !currentGoal.alcanzado, let projection = projectedGoalDate else { return nil }
+        guard !metaAlcanzadaVisualmente, let projection = projectedGoalDate else { return nil }
         return "Estimado para \(projection.date.formatted(.dateTime.day().month(.abbreviated)))"
     }
 
@@ -78,7 +141,7 @@ struct SavingsGoalDetailView: View {
     }
 
     private var projectedGoalDate: GoalProjectionResult? {
-        let remainingAfterCurrent = max(currentGoal.montoPendiente - aporteInicialProyectado, 0)
+        let remainingAfterCurrent = montoPendienteVisual
         if remainingAfterCurrent <= 0 {
             return GoalProjectionResult(date: Date(), relativeDescription: "La alcanzarías con tu aporte inicial")
         }
@@ -167,7 +230,7 @@ struct SavingsGoalDetailView: View {
                             Text("Ahorrado")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            Text(currentGoal.ahorrado, format: .currency(code: currentGoal.moneda.rawValue))
+                            Text(progresoVisualActual, format: .currency(code: currentGoal.moneda.rawValue))
                                 .font(.headline)
                         }
 
@@ -182,20 +245,20 @@ struct SavingsGoalDetailView: View {
                         }
                     }
 
-                    ProgressView(value: currentGoal.porcentajeCompletado, total: 100)
-                        .tint(currentGoal.alcanzado ? Color(red: 0.20, green: 0.60, blue: 0.46) : .blue)
+                    ProgressView(value: porcentajeCompletadoVisual, total: 100)
+                        .tint(metaAlcanzadaVisualmente ? Color(red: 0.20, green: 0.60, blue: 0.46) : .blue)
 
                     HStack {
-                        Text("\(Int(currentGoal.porcentajeCompletado))% completado")
+                        Text("\(Int(porcentajeCompletadoVisual))% completado")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
-                        if currentGoal.alcanzado {
+                        if metaAlcanzadaVisualmente {
                             Text("Meta alcanzada")
                                 .font(.caption.weight(.semibold))
                                 .foregroundColor(Color(red: 0.20, green: 0.60, blue: 0.46))
                         } else {
-                            Text("Faltan \(currentGoal.montoPendiente.formatted(.currency(code: currentGoal.moneda.rawValue)))")
+                            Text("Faltan \(montoPendienteVisual.formatted(.currency(code: currentGoal.moneda.rawValue)))")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -205,6 +268,14 @@ struct SavingsGoalDetailView: View {
             }
 
             Section("Proyección") {
+                LabeledContent("Disponible actualmente") {
+                    Text(totalDisponibleActual, format: .currency(code: currentGoal.moneda.rawValue))
+                }
+
+                LabeledContent("Disponible para esta meta") {
+                    Text(disponibleActualParaEstaMeta, format: .currency(code: currentGoal.moneda.rawValue))
+                }
+
                 LabeledContent("Pronóstico próximo mes") {
                     Text(pronosticoMensual, format: .currency(code: currentGoal.moneda.rawValue))
                 }
@@ -251,13 +322,13 @@ struct SavingsGoalDetailView: View {
             syncProjectionStateFromGoal()
             didLoadProjectionState = true
         }
-        .onChange(of: aporteInicialMode) { _ in persistProjectionSettings() }
-        .onChange(of: baseInicialManual) { _ in persistProjectionSettings() }
-        .onChange(of: aporteInicialPorcentaje) { _ in persistProjectionSettings() }
-        .onChange(of: aporteInicialCantidadManual) { _ in persistProjectionSettings() }
-        .onChange(of: aportePronosticoMode) { _ in persistProjectionSettings() }
-        .onChange(of: aportePronosticoPorcentaje) { _ in persistProjectionSettings() }
-        .onChange(of: aportePronosticoCantidadManual) { _ in persistProjectionSettings() }
+        .onChange(of: aporteInicialMode) { persistProjectionSettings() }
+        .onChange(of: baseInicialManual) { persistProjectionSettings() }
+        .onChange(of: aporteInicialPorcentaje) { persistProjectionSettings() }
+        .onChange(of: aporteInicialCantidadManual) { persistProjectionSettings() }
+        .onChange(of: aportePronosticoMode) { persistProjectionSettings() }
+        .onChange(of: aportePronosticoPorcentaje) { persistProjectionSettings() }
+        .onChange(of: aportePronosticoCantidadManual) { persistProjectionSettings() }
     }
 
     private var initialProjectionSection: some View {
@@ -272,14 +343,14 @@ struct SavingsGoalDetailView: View {
             .pickerStyle(.segmented)
 
             if aporteInicialMode == .percentage {
-                LabeledContent("Base manual actual") {
-                    TextField(
-                        "0",
-                        value: $baseInicialManual,
-                        format: .number.precision(.fractionLength(0...2))
-                    )
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
+                LabeledContent("Base actual") {
+                    Text(totalDisponibleActual, format: .currency(code: currentGoal.moneda.rawValue))
+                }
+
+                if reservadoActualPorOtrasMetas > 0 {
+                    LabeledContent("Reservado por otras metas") {
+                        Text(reservadoActualPorOtrasMetas, format: .currency(code: currentGoal.moneda.rawValue))
+                    }
                 }
 
                 HStack {
@@ -289,7 +360,7 @@ struct SavingsGoalDetailView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Slider(value: $aporteInicialPorcentaje, in: 0...100, step: 1)
+                Slider(value: $aporteInicialPorcentaje, in: 0...max(maxPorcentajeInicialDisponible, 0), step: 1)
                     .tint(accentColor)
             } else {
                 LabeledContent("Cantidad inicial") {
@@ -300,6 +371,12 @@ struct SavingsGoalDetailView: View {
                     )
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
+                }
+
+                if aporteInicialCantidadManual > disponibleActualParaEstaMeta {
+                    Text("La cantidad no puede ser mayor que lo disponible para esta meta.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
                 }
             }
         }
@@ -318,6 +395,12 @@ struct SavingsGoalDetailView: View {
             .pickerStyle(.segmented)
 
             if aportePronosticoMode == .percentage {
+                if maxPorcentajePronosticoDisponible < 100 {
+                    LabeledContent("Porcentaje libre") {
+                        Text(maxPorcentajePronosticoDisponible / 100, format: .percent.precision(.fractionLength(0)))
+                    }
+                }
+
                 HStack {
                     Text("Porcentaje")
                     Spacer()
@@ -325,7 +408,7 @@ struct SavingsGoalDetailView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Slider(value: $aportePronosticoPorcentaje, in: 0...100, step: 1)
+                Slider(value: $aportePronosticoPorcentaje, in: 0...max(maxPorcentajePronosticoDisponible, 0), step: 1)
                     .tint(accentColor)
             } else {
                 LabeledContent("Cantidad por cobro") {
@@ -336,6 +419,12 @@ struct SavingsGoalDetailView: View {
                     )
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
+                }
+
+                if aportePronosticoCantidadManual > maxCantidadPronosticoPorCobro {
+                    Text("La cantidad por cobro no puede superar lo libre después de otras metas.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
                 }
             }
         }
@@ -354,6 +443,36 @@ struct SavingsGoalDetailView: View {
 
     private func persistProjectionSettings() {
         guard didLoadProjectionState else { return }
+        let manualInicialValidado = min(max(aporteInicialCantidadManual, 0), max(totalDisponibleActual, 0))
+        let manualInicialDisponible = min(manualInicialValidado, disponibleActualParaEstaMeta)
+        if manualInicialDisponible != aporteInicialCantidadManual {
+            aporteInicialCantidadManual = manualInicialDisponible
+            return
+        }
+
+        let porcentajeInicialValidado = min(max(aporteInicialPorcentaje, 0), maxPorcentajeInicialDisponible)
+        if porcentajeInicialValidado != aporteInicialPorcentaje {
+            aporteInicialPorcentaje = porcentajeInicialValidado
+            return
+        }
+
+        let porcentajePronosticoValidado = min(max(aportePronosticoPorcentaje, 0), maxPorcentajePronosticoDisponible)
+        if porcentajePronosticoValidado != aportePronosticoPorcentaje {
+            aportePronosticoPorcentaje = porcentajePronosticoValidado
+            return
+        }
+
+        let cantidadPronosticoValidada = min(max(aportePronosticoCantidadManual, 0), maxCantidadPronosticoPorCobro)
+        if cantidadPronosticoValidada != aportePronosticoCantidadManual {
+            aportePronosticoCantidadManual = cantidadPronosticoValidada
+            return
+        }
+
+        if manualInicialValidado != aporteInicialCantidadManual {
+            aporteInicialCantidadManual = manualInicialValidado
+            return
+        }
+
         savingsGoalManager.updateProjectionSettings(
             for: currentGoal.id,
             aporteInicialMode: aporteInicialMode,
@@ -372,6 +491,23 @@ struct SavingsGoalDetailView: View {
             return income.amount * (aportePronosticoPorcentaje / 100)
         case .manualAmount:
             return max(aportePronosticoCantidadManual, 0)
+        }
+    }
+
+    private func reservedForecastAmountByOtherGoals(for income: ProjectedIncomeEvent) -> Double {
+        savingsGoalManager.savingsGoals
+            .filter { $0.moneda == currentGoal.moneda && $0.id != currentGoal.id }
+            .reduce(0) { partialResult, goal in
+                partialResult + reservedForecastAmount(for: goal, income: income)
+            }
+    }
+
+    private func reservedForecastAmount(for goal: SavingsGoal, income: ProjectedIncomeEvent) -> Double {
+        switch goal.aportePronosticoMode {
+        case .percentage:
+            return income.amount * (goal.aportePronosticoPorcentaje / 100)
+        case .manualAmount:
+            return max(goal.aportePronosticoCantidadManual, 0)
         }
     }
 
@@ -408,6 +544,7 @@ struct SavingsGoalDetailView: View {
         }
         return "Aprox. 30 días · \(dayText)"
     }
+
 }
 
 private struct ScheduledSavingsContribution {

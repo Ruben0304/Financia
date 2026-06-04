@@ -15,8 +15,11 @@ class ChatViewModel: ObservableObject {
     private let exchangeRateManager: ExchangeRateManager
     private let walletManager: WalletManager
     private let debtManager: DebtManager
+    private let prestamoManager: PrestamoManager
     private let savingsManager: SavingsGoalManager
     private let profileManager: ProfileManager
+    private let subscriptionManager: SubscriptionManager
+    private let contextBuilder: FinancialAIContextBuilder
 
     init(
         chatService: ChatService = ChatService(),
@@ -24,16 +27,31 @@ class ChatViewModel: ObservableObject {
         exchangeRateManager: ExchangeRateManager = .shared,
         walletManager: WalletManager = .shared,
         debtManager: DebtManager = .shared,
+        prestamoManager: PrestamoManager = .shared,
         savingsManager: SavingsGoalManager = .shared,
-        profileManager: ProfileManager = .shared
+        profileManager: ProfileManager = .shared,
+        subscriptionManager: SubscriptionManager = .shared,
+        contextBuilder: FinancialAIContextBuilder? = nil
     ) {
         self.chatService = chatService
         self.transactionManager = transactionManager
         self.exchangeRateManager = exchangeRateManager
         self.walletManager = walletManager
         self.debtManager = debtManager
+        self.prestamoManager = prestamoManager
         self.savingsManager = savingsManager
         self.profileManager = profileManager
+        self.subscriptionManager = subscriptionManager
+        self.contextBuilder = contextBuilder ?? FinancialAIContextBuilder(
+            transactionManager: transactionManager,
+            exchangeRateManager: exchangeRateManager,
+            walletManager: walletManager,
+            debtManager: debtManager,
+            prestamoManager: prestamoManager,
+            savingsManager: savingsManager,
+            profileManager: profileManager,
+            subscriptionManager: subscriptionManager
+        )
     }
 
     /// Envía un mensaje al chat incluyendo el contexto de transacciones
@@ -53,7 +71,10 @@ class ChatViewModel: ObservableObject {
 
         do {
             // Preparar contexto con transacciones
-            let context = buildTransactionContext()
+            let context = contextBuilder.buildTransactionContext(
+                transactionFilter: transactionFilter,
+                timePeriod: timePeriod
+            )
             let fullMessage = context + "\n\nPregunta del usuario: \(userMessage)"
 
             var assistantIndex: Int?
@@ -105,26 +126,61 @@ class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Construye el contexto con las transacciones filtradas
-    private func buildTransactionContext() -> String {
+    /// Limpia el historial de mensajes
+    func clearMessages() {
+        messages.removeAll()
+    }
+}
+
+@MainActor
+final class FinancialAIContextBuilder {
+    private let transactionManager: TransactionManager
+    private let exchangeRateManager: ExchangeRateManager
+    private let walletManager: WalletManager
+    private let debtManager: DebtManager
+    private let prestamoManager: PrestamoManager
+    private let savingsManager: SavingsGoalManager
+    private let profileManager: ProfileManager
+    private let subscriptionManager: SubscriptionManager
+
+    init(
+        transactionManager: TransactionManager = .shared,
+        exchangeRateManager: ExchangeRateManager = .shared,
+        walletManager: WalletManager = .shared,
+        debtManager: DebtManager = .shared,
+        prestamoManager: PrestamoManager = .shared,
+        savingsManager: SavingsGoalManager = .shared,
+        profileManager: ProfileManager = .shared,
+        subscriptionManager: SubscriptionManager = .shared
+    ) {
+        self.transactionManager = transactionManager
+        self.exchangeRateManager = exchangeRateManager
+        self.walletManager = walletManager
+        self.debtManager = debtManager
+        self.prestamoManager = prestamoManager
+        self.savingsManager = savingsManager
+        self.profileManager = profileManager
+        self.subscriptionManager = subscriptionManager
+    }
+
+    func buildTransactionContext(
+        transactionFilter: TransactionFilter,
+        timePeriod: TimePeriod
+    ) -> String {
         var transactions = transactionManager.transactions
 
-        // Filtrar por tipo
         if transactionFilter == .ingresos {
             transactions = transactions.filter { $0.type == .income }
         } else if transactionFilter == .gastos {
             transactions = transactions.filter { $0.type == .expense }
         }
 
-        // Filtrar por periodo de tiempo
         if let startDate = timePeriod.startDate {
             transactions = transactions.filter { $0.date >= startDate }
         }
 
-        // Ordenar por fecha
         transactions.sort { $0.date > $1.date }
 
-        // Formatear contexto
         var context = "=== CONTEXTO DE TRANSACCIONES ===\n"
         context += "Periodo: \(timePeriod.rawValue)\n"
         context += "Tipo: \(transactionFilter.rawValue)\n"
@@ -135,7 +191,7 @@ class ChatViewModel: ObservableObject {
             context += "No hay transacciones en el periodo seleccionado.\n"
         } else {
             context += "TRANSACCIONES:\n"
-            for transaction in transactions.prefix(50) { // Limitar a 50 transacciones
+            for transaction in transactions.prefix(50) {
                 let dateFormatter = DateFormatter()
                 dateFormatter.dateStyle = .short
                 dateFormatter.timeStyle = .short
@@ -153,7 +209,6 @@ class ChatViewModel: ObservableObject {
                 context += "\n... y \(transactions.count - 50) transacciones más.\n"
             }
 
-            // Agregar estadísticas
             let totalIncome = transactions.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
             let totalExpenses = transactions.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
 
@@ -163,14 +218,12 @@ class ChatViewModel: ObservableObject {
             context += "Balance: $\(String(format: "%.2f", totalIncome - totalExpenses))\n"
         }
 
-        // Carteras
         context += "\n=== CARTERAS ===\n"
         for wallet in walletManager.wallets {
             let balance = walletManager.calculateBalance(for: wallet)
             context += "- \(wallet.name) (\(wallet.currency.rawValue)): \(String(format: "%.2f", balance))\n"
         }
 
-        // Deudas
         context += "\n=== DEUDAS ===\n"
         if debtManager.debts.isEmpty {
             context += "Sin deudas registradas.\n"
@@ -184,7 +237,33 @@ class ChatViewModel: ObservableObject {
             }
         }
 
-        // Metas de ahorro
+        context += "\n=== PRÉSTAMOS OTORGADOS ===\n"
+        if prestamoManager.prestamos.isEmpty {
+            context += "Sin préstamos registrados.\n"
+        } else {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .short
+            for prestamo in prestamoManager.prestamos {
+                let estado = prestamo.estaPagado ? "devuelto" : prestamo.estaVencido ? "vencido" : "pendiente"
+                context += "- \(prestamo.nombre): \(String(format: "%.2f", prestamo.monto)) \(prestamo.moneda.rawValue) [\(estado)]"
+                if let fecha = prestamo.fechaDevolucion {
+                    context += " — devolución pactada: \(dateFormatter.string(from: fecha))"
+                }
+                if !prestamo.motivo.isEmpty {
+                    context += " — motivo: \(prestamo.motivo)"
+                }
+                context += "\n"
+            }
+            let pendientes = prestamoManager.prestamos.filter { !$0.estaPagado }
+            if !pendientes.isEmpty {
+                let currencies = Set(pendientes.map(\.moneda))
+                for currency in currencies.sorted(by: { $0.rawValue < $1.rawValue }) {
+                    let total = pendientes.filter { $0.moneda == currency }.reduce(0) { $0 + $1.monto }
+                    context += "Total pendiente \(currency.rawValue): \(String(format: "%.2f", total))\n"
+                }
+            }
+        }
+
         context += "\n=== METAS DE AHORRO ===\n"
         if savingsManager.savingsGoals.isEmpty {
             context += "Sin metas de ahorro.\n"
@@ -195,7 +274,36 @@ class ChatViewModel: ObservableObject {
             }
         }
 
-        // Perfil del usuario
+        context += "\n=== SUSCRIPCIONES ===\n"
+        let activeSubscriptions = subscriptionManager.subscriptions.filter(\.isActive)
+        let inactiveSubscriptions = subscriptionManager.subscriptions.filter { !$0.isActive }
+        if subscriptionManager.subscriptions.isEmpty {
+            context += "Sin suscripciones registradas.\n"
+        } else {
+            if !activeSubscriptions.isEmpty {
+                context += "Activas:\n"
+                for sub in activeSubscriptions {
+                    let amount = sub.userExpenseAmount
+                    let shared = sub.isShared ? " (compartida con \(sub.sharedPeopleCount) personas, tu parte: \(String(format: "%.2f", amount)) \(sub.currency.rawValue))" : ""
+                    context += "- \(sub.platformName) - \(sub.planName): \(String(format: "%.2f", sub.price)) \(sub.currency.rawValue)\(shared), día de cobro: \(sub.billingDay)\n"
+                }
+            }
+            if !inactiveSubscriptions.isEmpty {
+                context += "Canceladas:\n"
+                for sub in inactiveSubscriptions {
+                    context += "- \(sub.platformName) - \(sub.planName): \(String(format: "%.2f", sub.price)) \(sub.currency.rawValue)\n"
+                }
+            }
+            let currencies = Set(activeSubscriptions.map(\.currency))
+            if !currencies.isEmpty {
+                context += "Total mensual activo:\n"
+                for currency in currencies.sorted(by: { $0.rawValue < $1.rawValue }) {
+                    let total = activeSubscriptions.filter { $0.currency == currency }.reduce(0) { $0 + $1.userExpenseAmount }
+                    context += "  \(currency.rawValue): \(String(format: "%.2f", total))\n"
+                }
+            }
+        }
+
         let profile = profileManager.profile
         if !profile.nombre.isEmpty || !profile.situacionFinanciera.isEmpty || !profile.estrategiaFinanciera.isEmpty {
             context += "\n=== PERFIL DEL USUARIO ===\n"
@@ -218,10 +326,5 @@ class ChatViewModel: ObservableObject {
             return "Tasa USD/CUP actual (informal): 1 USD = \(String(format: "%.2f", rate)) CUP"
         }
         return "Tasa USD/CUP actual (informal): sin dato"
-    }
-
-    /// Limpia el historial de mensajes
-    func clearMessages() {
-        messages.removeAll()
     }
 }

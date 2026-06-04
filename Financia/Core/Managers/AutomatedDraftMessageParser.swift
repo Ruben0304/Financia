@@ -125,11 +125,17 @@ enum AutomatedDraftMessageParser {
     }
 
     private static func extractAmount(after marker: String, in text: String) -> Double? {
-        guard let value = extractValue(after: marker, endingBeforeAnyOf: ["CUP", "."], in: text) else {
+        guard let markerRange = text.range(of: marker, options: .caseInsensitive) else {
             return nil
         }
 
-        return parseAmount(value)
+        let remainder = String(text[markerRange.upperBound...])
+
+        guard let match = remainder.range(of: #"[0-9]+(?:\.[0-9]+)?"#, options: .regularExpression) else {
+            return nil
+        }
+
+        return parseAmount(String(remainder[match]))
     }
 
     private static func extractTransferReceivedAmount(in text: String) -> Double? {

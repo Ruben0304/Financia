@@ -8,6 +8,11 @@
 import Foundation
 import SwiftUI
 
+enum SavingsProjectionMode: String, Codable, CaseIterable {
+    case percentage
+    case manualAmount
+}
+
 struct SavingsGoal: Identifiable, Codable {
     var id: UUID
     var nombre: String
@@ -19,6 +24,13 @@ struct SavingsGoal: Identifiable, Codable {
     var ahorrado: Double            // Progreso actual
     var createdAt: Date
     var contribuciones: [SavingsContribution]
+    var aporteInicialMode: SavingsProjectionMode
+    var baseInicialManual: Double
+    var aporteInicialPorcentaje: Double
+    var aporteInicialCantidadManual: Double
+    var aportePronosticoMode: SavingsProjectionMode
+    var aportePronosticoPorcentaje: Double
+    var aportePronosticoCantidadManual: Double
 
     init(
         id: UUID = UUID(),
@@ -30,7 +42,14 @@ struct SavingsGoal: Identifiable, Codable {
         productURL: String? = nil,
         ahorrado: Double = 0.0,
         createdAt: Date = Date(),
-        contribuciones: [SavingsContribution] = []
+        contribuciones: [SavingsContribution] = [],
+        aporteInicialMode: SavingsProjectionMode = .percentage,
+        baseInicialManual: Double = 0,
+        aporteInicialPorcentaje: Double = 0,
+        aporteInicialCantidadManual: Double = 0,
+        aportePronosticoMode: SavingsProjectionMode = .percentage,
+        aportePronosticoPorcentaje: Double = 0,
+        aportePronosticoCantidadManual: Double = 0
     ) {
         self.id = id
         self.nombre = nombre
@@ -42,6 +61,13 @@ struct SavingsGoal: Identifiable, Codable {
         self.ahorrado = ahorrado
         self.createdAt = createdAt
         self.contribuciones = contribuciones
+        self.aporteInicialMode = aporteInicialMode
+        self.baseInicialManual = baseInicialManual
+        self.aporteInicialPorcentaje = aporteInicialPorcentaje
+        self.aporteInicialCantidadManual = aporteInicialCantidadManual
+        self.aportePronosticoMode = aportePronosticoMode
+        self.aportePronosticoPorcentaje = aportePronosticoPorcentaje
+        self.aportePronosticoCantidadManual = aportePronosticoCantidadManual
     }
 
     // Porcentaje de progreso

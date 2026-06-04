@@ -88,6 +88,71 @@ struct DebtPayment: Identifiable, Codable, Hashable {
     }
 }
 
+// MARK: - Loan Models
+
+struct Prestamo: Identifiable, Codable, Hashable {
+    var id: UUID
+    var nombre: String          // A quién se prestó
+    var motivo: String
+    var monto: Double           // Monto pendiente
+    var moneda: Currency
+    var fechaPrestamo: Date
+    var fechaDevolucion: Date?  // Fecha pactada de devolución
+    var montoOriginal: Double
+    var cobros: [PrestamoCobro]
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        nombre: String,
+        motivo: String,
+        monto: Double,
+        moneda: Currency,
+        fechaPrestamo: Date = Date(),
+        fechaDevolucion: Date? = nil,
+        montoOriginal: Double? = nil,
+        cobros: [PrestamoCobro] = [],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.nombre = nombre
+        self.motivo = motivo
+        self.monto = monto
+        self.moneda = moneda
+        self.fechaPrestamo = fechaPrestamo
+        self.fechaDevolucion = fechaDevolucion
+        self.montoOriginal = montoOriginal ?? monto
+        self.cobros = cobros
+        self.createdAt = createdAt
+    }
+
+    var estaVencido: Bool {
+        guard let fecha = fechaDevolucion else { return false }
+        return Date() > fecha && monto > 0
+    }
+
+    var estaPagado: Bool { monto <= 0 }
+}
+
+struct PrestamoCobro: Identifiable, Codable, Hashable {
+    var id: UUID
+    var amount: Double
+    var date: Date
+    var walletId: UUID
+
+    init(
+        id: UUID = UUID(),
+        amount: Double,
+        date: Date = Date(),
+        walletId: UUID
+    ) {
+        self.id = id
+        self.amount = amount
+        self.date = date
+        self.walletId = walletId
+    }
+}
+
 struct DebtEstimateRequest: Codable {
     let prompt: String
 }

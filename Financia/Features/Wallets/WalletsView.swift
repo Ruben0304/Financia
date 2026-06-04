@@ -7,6 +7,8 @@ struct WalletsView: View {
     @State private var isAddingWallet = false
     @State private var isTransferring = false
     @State private var walletToAdjust: Wallet?
+    @State private var walletForDamagedBills: Wallet?
+    @State private var isShowingBreathing = false
 
     var body: some View {
         NavigationStack {
@@ -15,7 +17,6 @@ struct WalletsView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {
-                        headerView
                         TotalBalanceCard(
                             totalBalanceUSD: walletManager.totalBalance(in: .usd),
                             exchangeRateManager: exchangeRateManager
@@ -27,7 +28,36 @@ struct WalletsView: View {
                     .padding(.bottom, 100)
                 }
             }
+            .navigationTitle("Carteras")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .title) {
+                    Text("Carteras")
+                        .font(DarkFinanceTypography.toolbarTitle(size: 24))
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                }
+
+                ToolbarItem(placement: .subtitle) {
+                    Text(walletsSubtitle)
+                        .font(DarkFinanceTypography.toolbarSubtitle())
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                }
+
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    toolbarActionButton(systemName: "arrow.left.arrow.right") {
+                        isTransferring = true
+                    }
+
+                    toolbarActionButton(systemName: "wind") {
+                        isShowingBreathing = true
+                    }
+
+                    toolbarActionButton(systemName: "plus") {
+                        isAddingWallet = true
+                    }
+                }
+            }
         }
         .sheet(isPresented: $isAddingWallet) {
             AddWalletSheet { newWallet in
@@ -37,43 +67,29 @@ struct WalletsView: View {
         .sheet(isPresented: $isTransferring) {
             TransferView()
         }
+        .sheet(isPresented: $isShowingBreathing) {
+            FinancialBreathingSheet()
+        }
         .sheet(item: $walletToAdjust) { wallet in
             AdjustBalanceSheet(wallet: wallet)
         }
-    }
-
-    private var headerView: some View {
-        HStack(spacing: 12) {
-            Text("Carteras")
-                .font(DarkFinanceTypography.title(size: 28))
-                .foregroundColor(DarkFinanceColors.primaryText)
-
-            Spacer()
-
-            headerActionButton(systemName: "arrow.left.arrow.right") {
-                isTransferring = true
-            }
-
-            headerActionButton(systemName: "plus") {
-                isAddingWallet = true
+        .sheet(item: $walletForDamagedBills) { wallet in
+            DamagedBillsSheet(wallet: wallet) { updated in
+                walletManager.updateWallet(updated)
             }
         }
     }
 
-    private func headerActionButton(systemName: String, action: @escaping () -> Void) -> some View {
+    private var walletsSubtitle: String {
+        let count = walletManager.wallets.count
+        return count == 1 ? "1 cartera activa" : "\(count) carteras activas"
+    }
+
+    private func toolbarActionButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(DarkFinanceColors.primaryText)
-                .frame(width: 36, height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(DarkFinanceColors.cardBackground)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DarkFinanceColors.cardBorder, lineWidth: 1)
-                        )
-                )
         }
         .buttonStyle(.plain)
     }
@@ -82,13 +98,13 @@ struct WalletsView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Tus carteras")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(DarkFinanceTypography.sectionTitle())
                     .foregroundColor(DarkFinanceColors.primaryText)
 
                 Spacer()
 
                 Text("\(walletManager.wallets.count)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(DarkFinanceTypography.caption(weight: .semibold))
                     .foregroundColor(DarkFinanceColors.secondaryText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -117,11 +133,11 @@ struct WalletsView: View {
                 .foregroundColor(DarkFinanceColors.secondaryText)
 
             Text("No tienes carteras")
-                .font(.system(size: 16, weight: .semibold))
+                .font(DarkFinanceTypography.sectionTitle())
                 .foregroundColor(DarkFinanceColors.primaryText)
 
             Text("Crea tu primera cartera para comenzar.")
-                .font(.system(size: 13))
+                .font(DarkFinanceTypography.body(size: 13))
                 .foregroundColor(DarkFinanceColors.secondaryText)
                 .multilineTextAlignment(.center)
 
@@ -136,55 +152,134 @@ struct WalletsView: View {
     private func walletCard(_ wallet: Wallet) -> some View {
         let balance = walletManager.calculateBalance(for: wallet)
         let usdAmount = exchangeRateManager.convert(amount: balance, from: wallet.currency, to: .usd)
+        let damaged = wallet.totalBillesDañados
 
-        return HStack(spacing: 14) {
-            Circle()
-                .fill(wallet.color)
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Image(systemName: wallet.icon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                )
+        return VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Circle()
+                    .fill(wallet.color)
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        Image(systemName: wallet.icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                    )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(wallet.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DarkFinanceColors.primaryText)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(wallet.name)
+                        .font(DarkFinanceTypography.emphasis(size: 14))
+                        .foregroundColor(DarkFinanceColors.primaryText)
 
-                Text(wallet.currency.rawValue)
-                    .font(.system(size: 12))
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(balance, format: .currency(code: wallet.currency.rawValue))
-                    .font(DarkFinanceTypography.monoAmount(size: 16, weight: .semibold))
-                    .foregroundColor(wallet.color)
-
-                if let usdAmount {
-                    Text(usdAmount, format: .currency(code: "USD"))
-                        .font(.system(size: 12))
+                    Text(wallet.currency.rawValue)
+                        .font(DarkFinanceTypography.caption())
                         .foregroundColor(DarkFinanceColors.secondaryText)
-                } else {
-                    Text("Sin tasa")
-                        .font(.system(size: 12))
-                        .foregroundColor(DarkFinanceColors.tertiaryText)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(balance, format: .currency(code: wallet.currency.rawValue))
+                        .font(DarkFinanceTypography.monoAmount(size: 16, weight: .semibold))
+                        .foregroundColor(wallet.color)
+
+                    if let usdAmount {
+                        Text(usdAmount, format: .currency(code: "USD"))
+                            .font(DarkFinanceTypography.caption())
+                            .foregroundColor(DarkFinanceColors.secondaryText)
+                    } else {
+                        Text("Sin tasa")
+                            .font(DarkFinanceTypography.caption())
+                            .foregroundColor(DarkFinanceColors.tertiaryText)
+                    }
                 }
             }
+
+            // Indicador de billetes dañados
+            if damaged > 0 {
+                Divider()
+                    .background(DarkFinanceColors.cardBorder)
+                    .padding(.vertical, 10)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "F59E0B"))
+
+                    Text("Billetes dañados:")
+                        .font(DarkFinanceTypography.caption(size: 11))
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+
+                    Text(damaged, format: .currency(code: wallet.currency.rawValue))
+                        .font(DarkFinanceTypography.monoAmount(size: 12, weight: .semibold))
+                        .foregroundColor(Color(hex: "F59E0B"))
+
+                    Spacer()
+
+                    Button {
+                        walletForDamagedBills = wallet
+                    } label: {
+                        Text("Editar")
+                            .font(DarkFinanceTypography.caption(size: 11, weight: .medium))
+                            .foregroundColor(Color(hex: "F59E0B"))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Fila de acciones (siempre visible)
+            Divider()
+                .background(DarkFinanceColors.cardBorder)
+                .padding(.top, damaged > 0 ? 0 : 10)
+                .padding(.bottom, 6)
+
+            HStack(spacing: 0) {
+                Button {
+                    walletToAdjust = wallet
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plusminus.circle")
+                            .font(.system(size: 13))
+                        Text("Ajustar saldo")
+                            .font(DarkFinanceTypography.caption(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+
+                Divider()
+                    .frame(height: 20)
+                    .background(DarkFinanceColors.cardBorder)
+
+                Button {
+                    walletForDamagedBills = wallet
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "banknote")
+                            .font(.system(size: 13))
+                        Text("Billetes dañados")
+                            .font(DarkFinanceTypography.caption(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(damaged > 0 ? Color(hex: "F59E0B") : DarkFinanceColors.secondaryText)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 4)
         }
         .darkFinanceCard(cornerRadius: 16, padding: 16)
         .contentShape(RoundedRectangle(cornerRadius: 16))
-        .onTapGesture {
-            walletToAdjust = wallet
-        }
         .contextMenu {
             Button {
                 walletToAdjust = wallet
             } label: {
                 Label("Ajustar saldo", systemImage: "plusminus.circle")
+            }
+
+            Button {
+                walletForDamagedBills = wallet
+            } label: {
+                Label("Billetes dañados", systemImage: "banknote")
             }
 
             Button(role: .destructive) {
@@ -204,7 +299,7 @@ struct TotalBalanceCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Balance total (USD)")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(DarkFinanceTypography.action(size: 13))
                     .foregroundColor(DarkFinanceColors.secondaryText)
 
                 Spacer()
@@ -213,7 +308,7 @@ struct TotalBalanceCard: View {
                     ProgressView()
                         .scaleEffect(0.7)
                         .tint(DarkFinanceColors.secondaryText)
-                } else if let lastUpdated = exchangeRateManager.lastUpdated {
+                } else if exchangeRateManager.lastUpdated != nil {
                     Button(action: {
                         exchangeRateManager.refreshRates()
                     }) {
@@ -230,7 +325,7 @@ struct TotalBalanceCard: View {
 
             if let lastUpdated = exchangeRateManager.lastUpdated {
                 Text("Actualizado \(lastUpdated, style: .relative)")
-                    .font(.system(size: 12))
+                    .font(DarkFinanceTypography.caption())
                     .foregroundColor(DarkFinanceColors.tertiaryText)
             }
         }

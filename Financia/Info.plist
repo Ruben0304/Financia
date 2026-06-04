@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
+	<dict>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
@@ -13,8 +13,28 @@
 			<array>
 				<string>financia</string>
 			</array>
+			</dict>
+			<dict/>
+		</array>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSExceptionDomains</key>
+			<dict>
+				<key>localhost</key>
+				<dict>
+					<key>NSExceptionAllowsInsecureHTTPLoads</key>
+					<true/>
+				</dict>
+				<key>127.0.0.1</key>
+				<dict>
+					<key>NSExceptionAllowsInsecureHTTPLoads</key>
+					<true/>
+				</dict>
+			</dict>
 		</dict>
-		<dict/>
-	</array>
-</dict>
+	</dict>
 </plist>

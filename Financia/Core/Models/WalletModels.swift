@@ -24,9 +24,11 @@ struct Wallet: Identifiable, Codable, Hashable {
     var balance: Double
     var icon: String
     var color: Color
+    /// Billetes dañados: clave = denominación como String (ej. "100"), valor = cantidad
+    var billesDañados: [String: Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, currency, balance, icon, color
+        case id, name, currency, balance, icon, color, billesDañados
     }
 
     struct CodableColor: Codable {
@@ -36,13 +38,14 @@ struct Wallet: Identifiable, Codable, Hashable {
         let opacity: Double
     }
 
-    init(id: UUID = UUID(), name: String, currency: Currency, balance: Double, icon: String, color: Color) {
+    init(id: UUID = UUID(), name: String, currency: Currency, balance: Double, icon: String, color: Color, billesDañados: [String: Int]? = nil) {
         self.id = id
         self.name = name
         self.currency = currency
         self.balance = balance
         self.icon = icon
         self.color = color
+        self.billesDañados = billesDañados
     }
 
     init(from decoder: Decoder) throws {
@@ -54,6 +57,7 @@ struct Wallet: Identifiable, Codable, Hashable {
         icon = try container.decode(String.self, forKey: .icon)
         let codableColor = try container.decode(CodableColor.self, forKey: .color)
         color = Color(.sRGB, red: codableColor.red, green: codableColor.green, blue: codableColor.blue, opacity: codableColor.opacity)
+        billesDañados = try container.decodeIfPresent([String: Int].self, forKey: .billesDañados)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -73,5 +77,15 @@ struct Wallet: Identifiable, Codable, Hashable {
 
         let codableColor = CodableColor(red: Double(red), green: Double(green), blue: Double(blue), opacity: Double(opacity))
         try container.encode(codableColor, forKey: .color)
+        try container.encodeIfPresent(billesDañados, forKey: .billesDañados)
+    }
+
+    /// Suma total de billetes dañados en la moneda de la cartera
+    var totalBillesDañados: Double {
+        guard let billetes = billesDañados else { return 0 }
+        return billetes.reduce(0) { total, entry in
+            let denom = Double(entry.key) ?? 0
+            return total + denom * Double(entry.value)
+        }
     }
 }

@@ -32,10 +32,17 @@ struct TransactionCategory: Identifiable, Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
-        subcategories = try container.decode([Subcategory].self, forKey: .subcategories)
-        icon = try container.decode(String.self, forKey: .icon)
-        let codableColor = try container.decode(CodableColor.self, forKey: .color)
-        color = Color(.sRGB, red: codableColor.red, green: codableColor.green, blue: codableColor.blue, opacity: codableColor.opacity)
+        subcategories = (try? container.decode([Subcategory].self, forKey: .subcategories)) ?? []
+        icon = (try? container.decode(String.self, forKey: .icon)) ?? "tag.fill"
+        // Color is stored as {red,green,blue,opacity}. Use a lenient decode so a
+        // missing or malformed backend value never prevents the whole list from loading.
+        if let codableColor = try? container.decode(CodableColor.self, forKey: .color),
+           codableColor.opacity > 0 {
+            color = Color(.sRGB, red: codableColor.red, green: codableColor.green,
+                          blue: codableColor.blue, opacity: codableColor.opacity)
+        } else {
+            color = .blue
+        }
     }
 
     func encode(to encoder: Encoder) throws {

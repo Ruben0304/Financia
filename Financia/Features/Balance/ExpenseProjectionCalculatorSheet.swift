@@ -25,20 +25,34 @@ struct ExpenseProjectionCalculatorSheet: View {
     @State private var selectedIds: Set<UUID> = []
     @State private var projectionRange: ProjectionRange = .thisMonth
     @State private var customMonths: Double = 1
+    @State private var selectedWalletId: UUID?
 
     // MARK: - Computed
+
+    private var availableWallets: [Wallet] {
+        walletManager.wallets.filter { $0.currency == selectedCurrency }
+    }
+
+    private var selectedWallet: Wallet? {
+        guard let selectedWalletId else { return nil }
+        return availableWallets.first { $0.id == selectedWalletId }
+    }
+
+    private var walletsForProjection: [Wallet] {
+        selectedWallet.map { [$0] } ?? []
+    }
 
     private var categoryAverages: [CategoryAverageExpense] {
         transactionManager.monthlyAveragesByCategory(
             in: selectedCurrency,
-            wallets: walletManager.wallets
+            wallets: walletsForProjection
         )
     }
 
     private var subcategoryAverages: [SubcategoryAverageExpense] {
         transactionManager.monthlyAveragesBySubcategory(
             in: selectedCurrency,
-            wallets: walletManager.wallets
+            wallets: walletsForProjection
         )
     }
 
@@ -56,13 +70,14 @@ struct ExpenseProjectionCalculatorSheet: View {
             for: selectedIds,
             months: effectiveMonths,
             in: selectedCurrency,
-            wallets: walletManager.wallets,
+            wallets: walletsForProjection,
             groupBySubcategory: groupBySubcategory
         )
     }
 
     private var currentBalance: Double {
-        walletManager.totalBalance(in: selectedCurrency)
+        guard let selectedWallet else { return 0 }
+        return walletManager.calculateBalance(for: selectedWallet)
     }
 
     private var projectedRemaining: Double {
@@ -82,6 +97,8 @@ struct ExpenseProjectionCalculatorSheet: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                walletSection
+
                 // Group toggle
                 Picker("Agrupar por", selection: $groupBySubcategory) {
                     Text("Categorías").tag(false)
@@ -106,11 +123,63 @@ struct ExpenseProjectionCalculatorSheet: View {
         .background(DarkFinanceBackground())
         .navigationTitle("Proyección de gastos")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            ensureSelectedWallet()
+        }
+        .onChange(of: walletManager.wallets) { _, _ in
+            ensureSelectedWallet()
+        }
+        .onChange(of: selectedCurrency) { _, _ in
+            selectedIds.removeAll()
+            selectedWalletId = nil
+            ensureSelectedWallet()
+        }
+        .onChange(of: selectedWalletId) { _, _ in
+            selectedIds.removeAll()
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cerrar") { dismiss() }
             }
         }
+    }
+
+    // MARK: - Wallet Section
+
+    private var walletSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Cartera")
+                .font(DarkFinanceTypography.sectionTitle())
+                .foregroundColor(DarkFinanceColors.primaryText)
+
+            if availableWallets.isEmpty {
+                Text("No hay carteras en \(selectedCurrency.rawValue).")
+                    .font(DarkFinanceTypography.body(size: 13))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+            } else {
+                Picker("Cartera", selection: $selectedWalletId) {
+                    ForEach(availableWallets) { wallet in
+                        Text(wallet.name).tag(Optional(wallet.id))
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if let selectedWallet {
+                    HStack(spacing: 10) {
+                        Image(systemName: selectedWallet.icon)
+                            .foregroundColor(selectedWallet.color)
+                        Text(selectedWallet.name)
+                            .font(DarkFinanceTypography.body(size: 14))
+                            .foregroundColor(DarkFinanceColors.primaryText)
+                        Spacer()
+                        Text(walletManager.calculateBalance(for: selectedWallet), format: .currency(code: selectedCurrency.rawValue))
+                            .font(DarkFinanceTypography.monoAmount(size: 14, weight: .semibold))
+                            .foregroundColor(DarkFinanceColors.secondaryText)
+                    }
+                }
+            }
+        }
+        .darkFinanceCard(cornerRadius: 20, padding: 16)
     }
 
     // MARK: - Selection Section
@@ -174,9 +243,7 @@ struct ExpenseProjectionCalculatorSheet: View {
                             .fill(category?.color ?? Color(.systemGray4))
                             .frame(width: 28, height: 28)
                             .overlay(
-                                Image(systemName: category?.icon ?? "tag.fill")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.white)
+                                CategoryIconView(icon: category?.icon ?? "tag.fill", color: .white, size: 12)
                             )
 
                         Text(item.categoryName)
@@ -223,9 +290,7 @@ struct ExpenseProjectionCalculatorSheet: View {
                             .fill(category?.color ?? Color(.systemGray4))
                             .frame(width: 28, height: 28)
                             .overlay(
-                                Image(systemName: category?.icon ?? "tag.fill")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.white)
+                                CategoryIconView(icon: category?.icon ?? "tag.fill", color: .white, size: 12)
                             )
 
                         VStack(alignment: .leading, spacing: 1) {
@@ -354,5 +419,15 @@ struct ExpenseProjectionCalculatorSheet: View {
             }
         }
         .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
+    private func ensureSelectedWallet() {
+        let validWalletIds = Set(availableWallets.map(\.id))
+
+        if let selectedWalletId, validWalletIds.contains(selectedWalletId) {
+            return
+        }
+
+        selectedWalletId = availableWallets.first?.id
     }
 }

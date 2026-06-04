@@ -89,7 +89,6 @@ struct HistoryView: View {
         }
         .refreshable {
             transactionManager.loadTransactions()
-            walletManager.syncAllWalletBalances()
         }
         .sheet(item: $selectedTransaction) { transaction in
             TransactionEditView(transaction: transaction)
@@ -198,7 +197,6 @@ struct HistoryView: View {
             liabilityId: transaction.liabilityId
         )
         transactionManager.addTransaction(repeated)
-        walletManager.syncWalletBalance(for: transaction.walletId)
     }
 
     private func showRepeatError(_ message: String) {
@@ -247,9 +245,11 @@ private struct HistoryRow: View {
                 .fill(category?.color ?? Color(.systemGray4))
                 .frame(width: 42, height: 42)
                 .overlay(
-                    Image(systemName: category?.icon ?? "tag.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
+                    CategoryIconView(
+                        icon: category?.icon ?? "tag.fill",
+                        color: .white,
+                        size: 16
+                    )
                 )
 
             VStack(alignment: .leading, spacing: 4) {

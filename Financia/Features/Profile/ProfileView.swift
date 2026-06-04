@@ -4,7 +4,9 @@ import UIKit
 
 struct ProfileView: View {
     @EnvironmentObject private var profileManager: ProfileManager
+    @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var exchangeRateManager: ExchangeRateManager
+    @EnvironmentObject private var cloudKitStatusManager: CloudKitStatusManager
     @State private var nombre: String = ""
     @State private var situacion: String = ""
     @State private var estrategia: String = ""
@@ -12,6 +14,7 @@ struct ProfileView: View {
     @State private var selectedItem: PhotosPickerItem?
     @State private var avatarData: Data?
     @State private var accentColor: Color = Color(hex: "FF5C00")
+    @State private var automationWalletId: UUID?
 
     var body: some View {
         Form {
@@ -44,6 +47,22 @@ struct ProfileView: View {
                     .lineLimit(3...6)
             }
 
+            Section("Automatizaciones") {
+                Picker("Cartera para borradores", selection: $automationWalletId) {
+                    Text("Sin seleccionar")
+                        .tag(Optional<UUID>.none)
+
+                    ForEach(walletManager.wallets) { wallet in
+                        Text("\(wallet.name) (\(wallet.currency.rawValue))")
+                            .tag(Optional(wallet.id))
+                    }
+                }
+
+                Text("Los borradores automáticos usarán esta cartera por defecto. La moneda saldrá de esa cartera.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             Section("Cambio USD (informal)") {
                 TextField("1 USD = ? CUP", text: $usdToCupText)
                     .keyboardType(.decimalPad)
@@ -65,6 +84,46 @@ struct ProfileView: View {
                 }
             }
 
+            Section("Estado de iCloud") {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: cloudKitStatusManager.state.isAvailable ? "checkmark.icloud.fill" : "icloud.slash")
+                        .foregroundStyle(cloudKitStatusManager.state.isAvailable ? .green : .orange)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(cloudKitStatusManager.state.title)
+                            .font(.headline)
+                        Text(cloudKitStatusManager.state.message)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: cloudKitStatusManager.isUsingCloudKitStore ? "externaldrive.badge.icloud" : "externaldrive")
+                        .foregroundStyle(cloudKitStatusManager.isUsingCloudKitStore ? .green : .orange)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(cloudKitStatusManager.isUsingCloudKitStore ? "Store CloudKit activo" : "Store local activo")
+                            .font(.headline)
+                        Text(cloudKitStatusManager.persistenceMessage)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Button("Comprobar de nuevo") {
+                    Task {
+                        await cloudKitStatusManager.refresh()
+                    }
+                }
+
+                if cloudKitStatusManager.state.shouldShowSettingsAction {
+                    Button("Abrir Ajustes") {
+                        openSettings()
+                    }
+                }
+            }
+
             Section("Color principal") {
                 ColorPicker("Acento", selection: $accentColor, supportsOpacity: false)
             }
@@ -73,7 +132,20 @@ struct ProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .keyboardDoneToolbar()
+        .toolbarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .title) {
+                Text("Perfil")
+                    .darkFinanceToolbarTitle(size: 24)
+                    .foregroundColor(DarkFinanceColors.primaryText)
+            }
+
+            ToolbarItem(placement: .subtitle) {
+                Text("Tu identidad, contexto y preferencias")
+                    .darkFinanceToolbarSubtitle(size: 12, weight: .medium)
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+            }
+
             ToolbarItem(placement: .confirmationAction) {
                 Button("Guardar") {
                     saveProfile()
@@ -83,7 +155,7 @@ struct ProfileView: View {
         .onAppear {
             loadProfile()
         }
-        .onChange(of: selectedItem) { newItem in
+        .onChange(of: selectedItem) { _, newItem in
             Task {
                 if let data = try? await newItem?.loadTransferable(type: Data.self) {
                     avatarData = data
@@ -93,8 +165,10 @@ struct ProfileView: View {
     }
 
     private var avatarView: some View {
-        PhotosPicker(selection: $selectedItem, matching: .images) {
-            if let data = avatarData, let uiImage = UIImage(data: data) {
+        let currentAvatarData = avatarData
+
+        return PhotosPicker(selection: $selectedItem, matching: .images) {
+            if let data = currentAvatarData, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
@@ -121,6 +195,7 @@ struct ProfileView: View {
         estrategia = profile.estrategiaFinanciera
         avatarData = profile.avatarData
         accentColor = Color(hex: profile.accentColorHex ?? "FF5C00")
+        automationWalletId = profile.automationWalletId
         if let manualRate = exchangeRateManager.manualUsdToCupRate {
             usdToCupText = formattedRate(manualRate)
         }
@@ -132,7 +207,8 @@ struct ProfileView: View {
             avatarData: avatarData,
             situacionFinanciera: situacion.trimmingCharacters(in: .whitespacesAndNewlines),
             estrategiaFinanciera: estrategia.trimmingCharacters(in: .whitespacesAndNewlines),
-            accentColorHex: colorToHex(accentColor) ?? "FF5C00"
+            accentColorHex: colorToHex(accentColor) ?? "FF5C00",
+            automationWalletId: automationWalletId
         )
         profileManager.saveProfile(updated)
 
@@ -167,5 +243,10 @@ struct ProfileView: View {
         let g = Int(green * 255)
         let b = Int(blue * 255)
         return String(format: "%02X%02X%02X", r, g, b)
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 }

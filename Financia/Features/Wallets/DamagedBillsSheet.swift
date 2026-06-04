@@ -16,9 +16,9 @@ private enum BillDenominations {
 
 struct DamagedBillsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var walletManager: WalletManager
 
     let wallet: Wallet
+    let onSave: (Wallet) -> Void
 
     /// Copia local del diccionario para edición
     @State private var counts: [String: Int] = [:]
@@ -62,7 +62,7 @@ struct DamagedBillsSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
                         saveChanges()
-                        dismiss()
+                        Task { @MainActor in dismiss() }
                     }
                     .font(DarkFinanceTypography.emphasis(size: 14))
                     .foregroundColor(DarkFinanceColors.primaryText)
@@ -143,7 +143,6 @@ struct DamagedBillsSheet: View {
                 Text("\(count) × \(denomination) = \(count * denomination)")
                     .font(DarkFinanceTypography.caption(size: 11))
                     .foregroundColor(Color(hex: "F59E0B"))
-                    .transition(.opacity)
             }
 
             // Controles - y +
@@ -183,7 +182,6 @@ struct DamagedBillsSheet: View {
             }
         }
         .padding(.vertical, 10)
-        .animation(.easeInOut(duration: 0.15), value: count)
     }
 
     private var totalCard: some View {
@@ -214,6 +212,6 @@ struct DamagedBillsSheet: View {
         var updated = wallet
         // Limpiar ceros antes de guardar
         updated.billesDañados = counts.isEmpty ? nil : counts.filter { $0.value > 0 }
-        walletManager.updateWallet(updated)
+        onSave(updated)
     }
 }

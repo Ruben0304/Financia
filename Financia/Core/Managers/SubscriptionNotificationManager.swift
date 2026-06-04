@@ -1,10 +1,10 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
+@MainActor
 final class SubscriptionNotificationManager {
     static let shared = SubscriptionNotificationManager()
 
-    private let center = UNUserNotificationCenter.current()
     private let weeklySummaryIdentifier = "subscriptions.weekly.summary"
     private let reminderPrefix = "subscriptions.daybefore"
 
@@ -22,31 +22,32 @@ final class SubscriptionNotificationManager {
         }
     }
 
-    private func requestAuthorizationIfNeeded(completion: @escaping (Bool) -> Void) {
-        center.getNotificationSettings { [weak self] settings in
-            guard let self else {
-                completion(false)
-                return
-            }
-
+    private func requestAuthorizationIfNeeded(completion: @escaping @MainActor (Bool) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
             if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
-                completion(true)
+                Task { @MainActor in
+                    completion(true)
+                }
                 return
             }
 
-            self.center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
                 if let error {
                     print("Error requesting notification authorization: \(error)")
                 }
-                completion(granted)
+                Task { @MainActor in
+                    completion(granted)
+                }
             }
         }
     }
 
-    private func clearSubscriptionNotifications(completion: @escaping () -> Void) {
-        center.getPendingNotificationRequests { [weak self] requests in
+    private func clearSubscriptionNotifications(completion: @escaping @MainActor () -> Void) {
+        UNUserNotificationCenter.current().getPendingNotificationRequests { [weak self] requests in
             guard let self else {
-                completion()
+                Task { @MainActor in
+                    completion()
+                }
                 return
             }
 
@@ -55,9 +56,11 @@ final class SubscriptionNotificationManager {
                 .filter { $0 == self.weeklySummaryIdentifier || $0.hasPrefix(self.reminderPrefix) }
 
             if !identifiers.isEmpty {
-                self.center.removePendingNotificationRequests(withIdentifiers: identifiers)
+                UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
             }
-            completion()
+            Task { @MainActor in
+                completion()
+            }
         }
     }
 
@@ -75,7 +78,7 @@ final class SubscriptionNotificationManager {
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
         let request = UNNotificationRequest(identifier: weeklySummaryIdentifier, content: content, trigger: trigger)
 
-        center.add(request) { error in
+        UNUserNotificationCenter.current().add(request) { error in
             if let error {
                 print("Error scheduling weekly summary notification: \(error)")
             }
@@ -107,7 +110,7 @@ final class SubscriptionNotificationManager {
                 let trigger = UNCalendarNotificationTrigger(dateMatching: reminderComponents, repeats: false)
                 let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
 
-                center.add(request) { error in
+                UNUserNotificationCenter.current().add(request) { error in
                     if let error {
                         print("Error scheduling day-before reminder: \(error)")
                     }

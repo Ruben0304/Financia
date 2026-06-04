@@ -31,11 +31,9 @@ struct FinancialBreathingSheet: View {
     }
 
     var body: some View {
-        ZStack {
-            background
-
-            VStack(spacing: 0) {
-                header
+        NavigationStack {
+            ZStack {
+                background
 
                 if walletManager.wallets.isEmpty {
                     emptyState
@@ -50,9 +48,36 @@ struct FinancialBreathingSheet: View {
                             }
                         }
                         .padding(.horizontal, 20)
-                        .padding(.top, 10)
+                        .padding(.top, 16)
                         .padding(.bottom, 30)
                     }
+                }
+            }
+            .navigationTitle("Respiracion")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .title) {
+                    Text("Respiracion")
+                        .darkFinanceToolbarTitle(size: 22)
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                }
+
+                ToolbarItem(placement: .subtitle) {
+                    Text("Resistencia real por cartera y gasto diario hasta tu proximo cobro")
+                        .darkFinanceToolbarSubtitle(size: 12, weight: .medium)
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(DarkFinanceColors.primaryText)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -71,43 +96,6 @@ struct FinancialBreathingSheet: View {
                 self.selectedWalletID = wallets.first?.id
             }
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Respiración")
-                    .font(.custom("Georgia", size: 28))
-                    .foregroundColor(DarkFinanceColors.primaryText)
-
-                Text("Resistencia real por cartera y gasto diario hasta tu próximo cobro")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-            }
-
-            Spacer()
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(DarkFinanceColors.primaryText)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(DarkFinanceColors.cardBackground.opacity(0.95))
-                            .overlay(
-                                Circle()
-                                    .stroke(DarkFinanceColors.cardBorder, lineWidth: 1)
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
     }
 
     private var walletSelector: some View {

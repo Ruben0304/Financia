@@ -148,9 +148,7 @@ struct CategoryAveragesSectionView: View {
                         .fill(category?.color ?? Color(.systemGray4))
                         .frame(width: 36, height: 36)
                         .overlay(
-                            Image(systemName: category?.icon ?? "tag.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
+                            CategoryIconView(icon: category?.icon ?? "tag.fill", color: .white, size: 14)
                         )
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -189,9 +187,7 @@ struct CategoryAveragesSectionView: View {
                         .fill(category?.color ?? Color(.systemGray4))
                         .frame(width: 36, height: 36)
                         .overlay(
-                            Image(systemName: category?.icon ?? "tag.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
+                            CategoryIconView(icon: category?.icon ?? "tag.fill", color: .white, size: 14)
                         )
 
                     VStack(alignment: .leading, spacing: 2) {

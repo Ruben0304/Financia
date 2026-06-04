@@ -50,6 +50,10 @@ struct CategoriesManagementView: View {
         }
         .navigationTitle("Categorías")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: selectedKind) {
+            selectedCategory = nil
+            selectedSubcategory = nil
+        }
         .alert("Nueva Subcategoría", isPresented: $showingAddSubcategoryAlert) {
             TextField("Nombre", text: $newSubcategoryName)
             Button("Guardar") {
@@ -63,14 +67,16 @@ struct CategoriesManagementView: View {
             }
         }
         .sheet(isPresented: $isAddingCategory) {
-            AddCategoryView { newCategory in
-                if selectedKind == .income {
-                    categoryManager.addIncomeCategory(newCategory)
-                } else {
-                    categoryManager.addExpenseCategory(newCategory)
+            NavigationStack {
+                AddCategoryView { newCategory in
+                    if selectedKind == .income {
+                        categoryManager.addIncomeCategory(newCategory)
+                    } else {
+                        categoryManager.addExpenseCategory(newCategory)
+                    }
+                    selectedCategory = newCategory
+                    selectedSubcategory = newCategory.subcategories.first
                 }
-                selectedCategory = newCategory
-                selectedSubcategory = newCategory.subcategories.first
             }
         }
     }
@@ -81,8 +87,9 @@ struct CategoriesManagementView: View {
 
     private func addSubcategory(to category: TransactionCategory, with name: String) {
         let newSubcategory = Subcategory(name: name)
-        categoryManager.addSubcategory(newSubcategory, to: category, isIncome: selectedKind == .income)
+        let isIncome = selectedKind == .income
+        categoryManager.addSubcategory(newSubcategory, to: category, isIncome: isIncome)
         selectedSubcategory = newSubcategory
-        selectedCategory = category
+        selectedCategory = categoryManager.category(withId: category.id, isIncome: isIncome)
     }
 }

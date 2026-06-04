@@ -27,11 +27,11 @@ private struct FinancialTimelineEvent: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let amount: Double
+    let currency: Currency
     let date: Date
     let dayOfMonth: Int
     let kind: FinancialTimelineKind
     let tint: Color
-    let projectedBalance: Double
 }
 
 struct FinancialTimelineSheet: View {
@@ -45,186 +45,171 @@ struct FinancialTimelineSheet: View {
     let currency: Currency
 
     @State private var hasAnimatedIn = false
+    @State private var selectedEventID: UUID?
 
     private var accentColor: Color {
         Color(hex: profileManager.profile.accentColorHex ?? "FF5C00")
     }
 
-    private var currentBalance: Double {
-        walletManager.wallets
-            .filter { $0.currency == currency }
-            .reduce(0) { partialResult, wallet in
-                partialResult + walletManager.calculateBalance(for: wallet)
-            }
-    }
-
-    private var incomeTotal: Double {
-        wealthManager.forecastedMonthlyIncome(in: currency)
-    }
-
-    private var outgoingTotal: Double {
-        let subscriptionExpenses = subscriptionManager.subscriptions
-            .filter { $0.isActive && $0.currency == currency }
-            .reduce(0) { $0 + $1.userExpenseAmount }
-
-        let liabilityExpenses = wealthManager.liabilityEvents(in: currency)
-            .reduce(0) { $0 + $1.amount }
-
-        let debtExpenses = debtManager.debts
-            .filter { $0.moneda == currency && $0.monto > 0 }
-            .reduce(0) { partialResult, debt in
-                partialResult + (debt.lastEstimate?.escenarios.first?.pagoMensual ?? 0)
-            }
-
-        return subscriptionExpenses + liabilityExpenses + debtExpenses
-    }
-
-    private var monthCloseProjection: Double {
-        currentBalance + incomeTotal - outgoingTotal
-    }
-
-    private var highlightedEvents: [FinancialTimelineEvent] {
-        Array(events.prefix(6))
+    private var timelineSubtitle: String {
+        let currencies = Set(events.map(\.currency.rawValue)).sorted()
+        return currencies.isEmpty ? "Sin hitos con fecha" : currencies.joined(separator: " · ")
     }
 
     private var events: [FinancialTimelineEvent] {
         let calendar = Calendar.current
         let now = Date()
         let baseMonth = referenceMonth(for: now, calendar: calendar)
-        var rawEvents: [(title: String, subtitle: String, amount: Double, dayOfMonth: Int, kind: FinancialTimelineKind, tint: Color)] = []
+        var mapped: [FinancialTimelineEvent] = []
 
-        for event in wealthManager.incomeEvents(in: currency) {
-            rawEvents.append((
-                title: event.sourceName,
-                subtitle: event.sourceType == .job ? "Salario programado" : "Rendimiento programado",
-                amount: event.amount,
-                dayOfMonth: event.dayOfMonth,
-                kind: event.sourceType == .job ? .salary : .asset,
-                tint: event.sourceType == .job ? Color(hex: "34C759") : Color(hex: "0EA5E9")
-            ))
-        }
-
-        for subscription in subscriptionManager.subscriptions
-            .filter({ $0.isActive && $0.currency == currency })
-            .sorted(by: { $0.billingDay < $1.billingDay }) {
-            rawEvents.append((
-                title: subscription.platformName,
-                subtitle: "Suscripción · \(subscription.planName)",
-                amount: -subscription.userExpenseAmount,
-                dayOfMonth: subscription.billingDay,
-                kind: .subscription,
-                tint: Color(hex: "7C3AED")
-            ))
-        }
-
-        for liability in wealthManager.liabilityEvents(in: currency) {
-            rawEvents.append((
-                title: liability.sourceName,
-                subtitle: "Pasivo recurrente",
-                amount: -liability.amount,
-                dayOfMonth: liability.dayOfMonth,
-                kind: .liability,
-                tint: Color(hex: "F97316")
-            ))
-        }
-
-        for debt in debtManager.debts
-            .filter({ $0.moneda == currency && $0.monto > 0 }) {
-            let monthlyPayment = debt.lastEstimate?.escenarios.first?.pagoMensual ?? 0
-            guard monthlyPayment > 0 else { continue }
-            rawEvents.append((
-                title: debt.nombre,
-                subtitle: debt.motivo.isEmpty ? "Pago recomendado de deuda" : debt.motivo,
-                amount: -monthlyPayment,
-                dayOfMonth: 28,
-                kind: .debt,
-                tint: DarkFinanceColors.errorRed
-            ))
-        }
-
-        let sorted = rawEvents
-            .map { raw in
-                (
-                    title: raw.title,
-                    subtitle: raw.subtitle,
-                    amount: raw.amount,
-                    dayOfMonth: min(max(raw.dayOfMonth, 1), 31),
-                    date: normalizedDate(dayOfMonth: raw.dayOfMonth, in: baseMonth, calendar: calendar),
-                    kind: raw.kind,
-                    tint: raw.tint
-                )
-            }
-            .sorted {
-                if $0.date == $1.date {
-                    return $0.amount > $1.amount
-                }
-                return $0.date < $1.date
-            }
-
-        var runningBalance = currentBalance
-        var mapped: [FinancialTimelineEvent] = [
-            FinancialTimelineEvent(
-                id: UUID(),
-                title: "Pulso actual",
-                subtitle: "Tu punto de partida en \(currency.rawValue)",
-                amount: currentBalance,
-                date: now,
-                dayOfMonth: calendar.component(.day, from: now),
-                kind: .currentBalance,
-                tint: accentColor,
-                projectedBalance: currentBalance
-            )
-        ]
-
-        for item in sorted {
-            runningBalance += item.amount
+        for event in wealthManager.allIncomeEvents() {
             mapped.append(
                 FinancialTimelineEvent(
                     id: UUID(),
-                    title: item.title,
-                    subtitle: item.subtitle,
-                    amount: item.amount,
-                    date: item.date,
-                    dayOfMonth: item.dayOfMonth,
-                    kind: item.kind,
-                    tint: item.tint,
-                    projectedBalance: runningBalance
+                    title: event.sourceName,
+                    subtitle: event.sourceType == .job ? "Salario programado" : "Rendimiento programado",
+                    amount: event.amount,
+                    currency: event.currency,
+                    date: normalizedDate(dayOfMonth: event.dayOfMonth, in: baseMonth, calendar: calendar),
+                    dayOfMonth: event.dayOfMonth,
+                    kind: event.sourceType == .job ? .salary : .asset,
+                    tint: event.sourceType == .job ? Color(hex: "34C759") : Color(hex: "0EA5E9")
                 )
             )
         }
 
-        let closingDate = closingDate(in: baseMonth, calendar: calendar)
+        for subscription in subscriptionManager.subscriptions
+            .filter({ $0.isActive })
+            .sorted(by: { lhs, rhs in
+                if lhs.billingDay == rhs.billingDay {
+                    return lhs.userExpenseAmount > rhs.userExpenseAmount
+                }
+                return lhs.billingDay < rhs.billingDay
+            }) {
+            mapped.append(
+                FinancialTimelineEvent(
+                    id: UUID(),
+                    title: subscription.platformName,
+                    subtitle: "Suscripción · \(subscription.planName)",
+                    amount: -subscription.userExpenseAmount,
+                    currency: subscription.currency,
+                    date: normalizedDate(dayOfMonth: subscription.billingDay, in: baseMonth, calendar: calendar),
+                    dayOfMonth: subscription.billingDay,
+                    kind: .subscription,
+                    tint: Color(hex: "7C3AED")
+                )
+            )
+        }
+
+        for liability in wealthManager.allLiabilityEvents() {
+            mapped.append(
+                FinancialTimelineEvent(
+                    id: UUID(),
+                    title: liability.sourceName,
+                    subtitle: "Pasivo recurrente",
+                    amount: -liability.amount,
+                    currency: liability.currency,
+                    date: normalizedDate(dayOfMonth: liability.dayOfMonth, in: baseMonth, calendar: calendar),
+                    dayOfMonth: liability.dayOfMonth,
+                    kind: .liability,
+                    tint: Color(hex: "F97316")
+                )
+            )
+        }
+
+        for debt in debtManager.debts.filter({ $0.monto > 0 }) {
+            let monthlyPayment = debt.lastEstimate?.escenarios.first?.pagoMensual ?? 0
+            guard monthlyPayment > 0 else { continue }
+            mapped.append(
+                FinancialTimelineEvent(
+                    id: UUID(),
+                    title: debt.nombre,
+                    subtitle: debt.motivo.isEmpty ? "Pago recomendado de deuda" : debt.motivo,
+                    amount: -monthlyPayment,
+                    currency: debt.moneda,
+                    date: normalizedDate(dayOfMonth: 28, in: baseMonth, calendar: calendar),
+                    dayOfMonth: 28,
+                    kind: .debt,
+                    tint: DarkFinanceColors.errorRed
+                )
+            )
+        }
+
         mapped.append(
             FinancialTimelineEvent(
                 id: UUID(),
-                title: "Cierre proyectado",
-                subtitle: "Balance estimado cuando termine el ciclo",
-                amount: monthCloseProjection,
-                date: closingDate,
-                dayOfMonth: calendar.component(.day, from: closingDate),
-                kind: .monthClose,
-                tint: .white,
-                projectedBalance: runningBalance
+                title: "Hoy",
+                subtitle: "Punto de partida para leer la secuencia",
+                amount: 0,
+                currency: currency,
+                date: now,
+                dayOfMonth: calendar.component(.day, from: now),
+                kind: .currentBalance,
+                tint: accentColor
             )
         )
 
-        return mapped
+        return mapped.sorted {
+            if $0.date == $1.date {
+                return $0.amount > $1.amount
+            }
+            return $0.date < $1.date
+        }
     }
 
     var body: some View {
-        ZStack {
-            background
+        NavigationStack {
+            ZStack {
+                background
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
-                    cover
-                    floatingMetrics
-                    cinematicCarousel
-                    chronologySection
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                            TimelineTrackRow(
+                                event: event,
+                                currency: currency,
+                                accentColor: accentColor,
+                                isSelected: selectedEventID == event.id,
+                                isFirst: index == 0,
+                                isLast: index == events.count - 1
+                            ) {
+                                selectedEventID = event.id
+                                softHaptic()
+                            }
+                            .padding(.bottom, index == events.count - 1 ? 0 : 6)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 30)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 44)
+            }
+            .navigationTitle("Timeline")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .title) {
+                    Text("Timeline")
+                        .darkFinanceToolbarTitle(size: 22)
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                }
+
+                ToolbarItem(placement: .subtitle) {
+                    Text(timelineSubtitle)
+                        .darkFinanceToolbarSubtitle(size: 12, weight: .medium)
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(DarkFinanceColors.primaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .presentationDetents([.large])
@@ -232,183 +217,9 @@ struct FinancialTimelineSheet: View {
         .onAppear {
             withAnimation(.spring(response: 0.9, dampingFraction: 0.84)) {
                 hasAnimatedIn = true
+                selectedEventID = events.first?.id
             }
-        }
-    }
-
-    private var cover: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Future Motion")
-                        .font(.custom("Georgia", size: 34))
-                        .foregroundColor(.white)
-                    Text("Una lectura cinematográfica de tu próximo ciclo en \(currency.rawValue)")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.76))
-                }
-
-                Spacer()
-
-                Button {
-                    dismiss()
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(.white.opacity(0.12))
-                            .frame(width: 34, height: 34)
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                }
-            }
-
-            HStack(alignment: .bottom, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Balance proyectado")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text(monthCloseProjection, format: .currency(code: currency.rawValue))
-                        .font(DarkFinanceTypography.monoAmount(size: 32, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("\(events.count - 1) hitos")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white.opacity(0.88))
-                    Text("desliza el escenario")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white.opacity(0.58))
-                }
-            }
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            accentColor.opacity(0.95),
-                            Color(hex: "18181B"),
-                            Color(hex: "09090B")
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .overlay(alignment: .topTrailing) {
-                    Circle()
-                        .fill(Color.white.opacity(0.18))
-                        .frame(width: 180, height: 180)
-                        .blur(radius: 20)
-                        .offset(x: 40, y: -50)
-                }
-                .shadow(color: accentColor.opacity(0.28), radius: 24, x: 0, y: 20)
-        )
-        .rotation3DEffect(.degrees(hasAnimatedIn ? 0 : -12), axis: (x: 1, y: 0, z: 0), perspective: 0.85)
-        .offset(y: hasAnimatedIn ? 0 : 20)
-        .opacity(hasAnimatedIn ? 1 : 0)
-    }
-
-    private var floatingMetrics: some View {
-        HStack(spacing: 12) {
-            metricCard(title: "Ingresos", value: incomeTotal, tint: Color(hex: "34C759"))
-            metricCard(title: "Salidas", value: outgoingTotal, tint: Color(hex: "FF6B6B"))
-            metricCard(title: "Ahora", value: currentBalance, tint: accentColor)
-        }
-    }
-
-    private func metricCard(title: String, value: Double, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Capsule()
-                .fill(tint)
-                .frame(width: 28, height: 4)
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.1)
-                .foregroundColor(DarkFinanceColors.secondaryText)
-            Text(value, format: .currency(code: currency.rawValue))
-                .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                .foregroundColor(DarkFinanceColors.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(DarkFinanceColors.cardBackground.opacity(0.94))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(DarkFinanceColors.cardBorder, lineWidth: 1)
-                )
-        )
-    }
-
-    private var cinematicCarousel: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Timeline 3D")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(DarkFinanceColors.primaryText)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 18) {
-                    ForEach(Array(highlightedEvents.enumerated()), id: \.element.id) { index, event in
-                        GeometryReader { proxy in
-                            let frame = proxy.frame(in: .global)
-                            let screenMid = UIScreen.main.bounds.width / 2
-                            let distance = frame.midX - screenMid
-                            let rotation = -distance / 18
-                            let scale = max(0.88, 1 - abs(distance) / 900)
-
-                            TimelineCinemaCard(event: event, currency: currency, accentColor: accentColor)
-                                .rotation3DEffect(.degrees(rotation), axis: (x: 0, y: 1, z: 0), perspective: 0.88)
-                                .rotation3DEffect(.degrees(distance / 60), axis: (x: 1, y: 0, z: 0), perspective: 0.88)
-                                .scaleEffect(scale)
-                                .offset(y: hasAnimatedIn ? 0 : CGFloat(index * 10))
-                                .opacity(hasAnimatedIn ? 1 : 0)
-                        }
-                        .frame(width: 286, height: 320)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 10)
-            }
-        }
-    }
-
-    private var chronologySection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Secuencia completa")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(DarkFinanceColors.primaryText)
-
-            VStack(spacing: 0) {
-                ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                    TimelineRow(
-                        event: event,
-                        currency: currency,
-                        accentColor: accentColor,
-                        isLast: index == events.count - 1
-                    )
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(DarkFinanceColors.cardBackground.opacity(0.94))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(DarkFinanceColors.cardBorder, lineWidth: 1)
-                    )
-            )
+            mediumHaptic()
         }
     }
 
@@ -452,172 +263,148 @@ struct FinancialTimelineSheet: View {
         return calendar.date(bySetting: .day, value: normalizedDay, of: monthDate) ?? monthDate
     }
 
-    private func closingDate(in monthDate: Date, calendar: Calendar) -> Date {
-        let range = calendar.range(of: .day, in: .month, for: monthDate) ?? (1..<32)
-        return calendar.date(bySetting: .day, value: range.count, of: monthDate) ?? monthDate
-    }
 }
 
-private struct TimelineCinemaCard: View {
+private struct TimelineTrackRow: View {
     let event: FinancialTimelineEvent
     let currency: Currency
     let accentColor: Color
-
-    private var amountColor: Color {
-        event.amount >= 0 ? DarkFinanceColors.primaryText : DarkFinanceColors.errorRed
-    }
+    let isSelected: Bool
+    let isFirst: Bool
+    let isLast: Bool
+    let onTap: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.10),
-                            event.tint.opacity(0.08),
-                            DarkFinanceColors.cardBackground.opacity(0.96)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .stroke(event.tint.opacity(0.28), lineWidth: 1)
-                )
-                .shadow(color: event.tint.opacity(0.16), radius: 24, x: 0, y: 18)
+        Button(action: onTap) {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 0) {
+                    if !isFirst {
+                        Capsule()
+                            .fill(lineGradient.opacity(0.8))
+                            .frame(width: 2, height: 24)
+                    } else {
+                        Spacer()
+                            .frame(width: 2, height: 24)
+                    }
 
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
                     ZStack {
                         Circle()
-                            .fill(event.tint.opacity(0.18))
-                            .frame(width: 54, height: 54)
-                        Image(systemName: event.kind.icon)
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(event.kind == .monthClose ? accentColor : event.tint)
+                            .fill(event.tint.opacity(isSelected ? 0.26 : 0.14))
+                            .frame(width: isSelected ? 20 : 14, height: isSelected ? 20 : 14)
+                            .overlay(
+                                Circle()
+                                    .stroke(event.tint.opacity(isSelected ? 0.9 : 0.35), lineWidth: isSelected ? 5 : 1)
+                            )
+
+                        if isSelected {
+                            Circle()
+                                .fill(event.tint)
+                                .frame(width: 8, height: 8)
+                        }
                     }
+                    .shadow(color: event.tint.opacity(isSelected ? 0.35 : 0.0), radius: 12, x: 0, y: 0)
 
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("día \(event.dayOfMonth)")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(DarkFinanceColors.primaryText)
-                        Text(event.date, format: .dateTime.month(.abbreviated))
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(DarkFinanceColors.secondaryText)
+                    if !isLast {
+                        Capsule()
+                            .fill(lineGradient)
+                            .frame(width: 2, height: 86)
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(event.title)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(DarkFinanceColors.primaryText)
-                    Text(event.subtitle)
-                        .font(.system(size: 13))
-                        .foregroundColor(DarkFinanceColors.secondaryText)
-                        .lineLimit(2)
-                }
-
-                Spacer()
+                .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(event.amount, format: .currency(code: currency.rawValue))
-                        .font(DarkFinanceTypography.monoAmount(size: 28, weight: .semibold))
-                        .foregroundColor(amountColor)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Balance después")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DarkFinanceColors.secondaryText)
-                        Text(event.projectedBalance, format: .currency(code: currency.rawValue))
-                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                            .foregroundColor(DarkFinanceColors.primaryText)
-                    }
-                }
-            }
-            .padding(24)
-        }
-    }
-}
-
-private struct TimelineRow: View {
-    let event: FinancialTimelineEvent
-    let currency: Currency
-    let accentColor: Color
-    let isLast: Bool
-
-    private var amountColor: Color {
-        event.amount >= 0 ? DarkFinanceColors.primaryText : DarkFinanceColors.errorRed
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(spacing: 0) {
-                ZStack {
-                    Circle()
-                        .fill(event.tint.opacity(0.16))
-                        .frame(width: 38, height: 38)
-                    Image(systemName: event.kind.icon)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(event.kind == .monthClose ? accentColor : event.tint)
-                }
-
-                if !isLast {
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [event.tint.opacity(0.25), Color.clear],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: 2, height: 52)
-                        .padding(.top, 6)
-                }
-            }
-            .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
                         Text(event.title)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: isSelected ? 17 : 15, weight: .semibold))
                             .foregroundColor(DarkFinanceColors.primaryText)
-                        Text(event.subtitle)
-                            .font(.system(size: 12))
-                            .foregroundColor(DarkFinanceColors.secondaryText)
+
+                        Spacer(minLength: 8)
+
+                        Text(event.date, format: .dateTime.day().month(.abbreviated))
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(isSelected ? event.tint : DarkFinanceColors.tertiaryText)
                     }
 
-                    Spacer()
+                    Text(event.subtitle)
+                        .font(.system(size: 12.5))
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                        .lineLimit(isSelected ? 3 : 2)
 
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("día \(event.dayOfMonth)")
+                    HStack(alignment: .lastTextBaseline) {
+                        Text(event.amount, format: .currency(code: event.currency.rawValue))
+                            .font(.system(size: isSelected ? 20 : 16, weight: .semibold, design: .monospaced))
+                            .foregroundColor(amountColor)
+
+                        Spacer()
+
+                        Text(event.currency.rawValue)
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(DarkFinanceColors.secondaryText)
-                        Text(event.date, format: .dateTime.month(.abbreviated))
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(DarkFinanceColors.tertiaryText)
                     }
                 }
-
-                HStack {
-                    Text(event.amount, format: .currency(code: currency.rawValue))
-                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                        .foregroundColor(amountColor)
-
-                    Spacer()
-
-                    Text("después: \(event.projectedBalance.formatted(.currency(code: currency.rawValue)))")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(DarkFinanceColors.secondaryText)
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    DarkFinanceColors.cardBackground.opacity(isSelected ? 0.98 : 0.92),
+                                    event.tint.opacity(isSelected ? 0.08 : 0.02)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(isSelected ? event.tint.opacity(0.35) : DarkFinanceColors.cardBorder, lineWidth: 1)
+                        )
+                        .shadow(color: isSelected ? event.tint.opacity(0.12) : Color.black.opacity(0.04), radius: isSelected ? 18 : 8, x: 0, y: isSelected ? 12 : 4)
+                )
+                .rotation3DEffect(.degrees(isSelected ? 0 : 3), axis: (x: 1, y: 0, z: 0), perspective: 0.95)
+                .scaleEffect(isSelected ? 1 : 0.985)
             }
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 18)
-        .padding(.bottom, isLast ? 18 : 0)
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.55, dampingFraction: 0.82), value: isSelected)
+        .opacity(hasContentOpacity)
+        .offset(y: hasContentOffset)
+    }
+
+    private var lineGradient: LinearGradient {
+        LinearGradient(
+            colors: [event.tint.opacity(0.36), event.tint.opacity(0.06)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var amountColor: Color {
+        if event.kind == .currentBalance {
+            return accentColor
+        }
+        return event.amount >= 0 ? DarkFinanceColors.primaryText : DarkFinanceColors.errorRed
+    }
+
+    private var hasContentOpacity: Double {
+        isSelected ? 1 : 0.92
+    }
+
+    private var hasContentOffset: CGFloat {
+        isSelected ? 0 : 2
     }
 }
 
+private func softHaptic() {
+    let generator = UIImpactFeedbackGenerator(style: .soft)
+    generator.prepare()
+    generator.impactOccurred(intensity: 0.8)
+}
+
+private func mediumHaptic() {
+    let generator = UIImpactFeedbackGenerator(style: .medium)
+    generator.prepare()
+    generator.impactOccurred(intensity: 0.9)
+}

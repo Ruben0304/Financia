@@ -73,11 +73,29 @@ struct TransferView: View {
             }
             .navigationTitle("Transferir")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") {
+                ToolbarItem(placement: .title) {
+                    Text("Transferir")
+                        .darkFinanceToolbarTitle(size: 22)
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                }
+
+                ToolbarItem(placement: .subtitle) {
+                    Text("Mueve saldo entre carteras y ajusta la tasa si hace falta")
+                        .darkFinanceToolbarSubtitle(size: 12, weight: .medium)
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(DarkFinanceColors.primaryText)
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
@@ -97,11 +115,11 @@ struct TransferView: View {
                 setDefaultWallets()
                 updateSuggestedRate()
             }
-            .onChange(of: fromWalletId) { _ in
+            .onChange(of: fromWalletId) { _, _ in
                 ensureDifferentWallets()
                 updateSuggestedRate()
             }
-            .onChange(of: toWalletId) { _ in
+            .onChange(of: toWalletId) { _, _ in
                 ensureDifferentWallets()
                 updateSuggestedRate()
             }

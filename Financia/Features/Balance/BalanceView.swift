@@ -1,9 +1,17 @@
 import SwiftUI
+import Charts
 
 enum BalanceTab: String, CaseIterable, Identifiable {
     case ingresos = "Ingresos"
     case gastos = "Gastos"
     case deudas = "Deudas"
+
+    var id: String { rawValue }
+}
+
+enum DeudaSubTab: String, CaseIterable, Identifiable {
+    case deudas = "Deudas"
+    case prestamos = "Préstamos"
 
     var id: String { rawValue }
 }
@@ -14,15 +22,17 @@ struct BalanceView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var categoryManager: CategoryManager
     @EnvironmentObject private var wealthManager: WealthManager
-    @EnvironmentObject private var expenseAnalysisManager: ExpenseAnalysisManager
+    @EnvironmentObject private var prestamoManager: PrestamoManager
 
     @State private var selectedTab: BalanceTab = .ingresos
     @State private var selectedCurrency: Currency = .cup
     @State private var entrySheetKind: FinanceEntryFlow?
     @State private var isAddingDebt: Bool = false
+    @State private var isAddingPrestamo: Bool = false
+    @State private var deudaSubTab: DeudaSubTab = .deudas
     @State private var repeatErrorMessage: String?
     @State private var isShowingRepeatError = false
-    @State private var isAnalysisExpanded: Bool = false
+    @State private var isShowingSubscriptions = false
 
     var body: some View {
         ZStack {
@@ -30,7 +40,6 @@ struct BalanceView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
-                    headerView
                     tabPicker
 
                     switch selectedTab {
@@ -40,11 +49,21 @@ struct BalanceView: View {
                         assetsAndJobsSection
                     case .gastos:
                         expenseCard
-                        aiAnalysisCard
                         categoryPieSection(type: .expense)
-                        liabilitiesSection
+                        CategoryAveragesSectionView(selectedCurrency: selectedCurrency)
                     case .deudas:
-                        debtCard
+                        Picker("", selection: $deudaSubTab) {
+                            ForEach(DeudaSubTab.allCases) { sub in
+                                Text(sub.rawValue).tag(sub)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        if deudaSubTab == .deudas {
+                            debtCard
+                        } else {
+                            prestamosCard
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -52,13 +71,69 @@ struct BalanceView: View {
                 .padding(.bottom, 100)
             }
         }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .principal) {
+                    balanceToolbarHeader
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .principal) {
+                    balanceToolbarHeader
+                }
+            }
+
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.flexible)
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    subscriptionsToolbarButton
+                }
+
+                ToolbarSpacer(.fixed)
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Picker("", selection: $selectedCurrency) {
+                        Text("CUP").tag(Currency.cup)
+                        Text("USD").tag(Currency.usd)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 104)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    subscriptionsToolbarButton
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Picker("", selection: $selectedCurrency) {
+                        Text("CUP").tag(Currency.cup)
+                        Text("USD").tag(Currency.usd)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 104)
+                }
+            }
+        }
         .sheet(item: $entrySheetKind) { kind in
             AddEntrySheet(kind: kind) { _ in }
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $isShowingSubscriptions) {
+            NavigationStack {
+                SubscriptionsSectionView()
+            }
+        }
         .sheet(isPresented: $isAddingDebt) {
             DebtEditorView { newDebt in
                 debtManager.addDebt(newDebt)
+            }
+        }
+        .sheet(isPresented: $isAddingPrestamo) {
+            PrestamoEditorView { newPrestamo in
+                prestamoManager.addPrestamo(newPrestamo)
             }
         }
         .alert("No se pudo repetir", isPresented: $isShowingRepeatError, actions: {
@@ -68,24 +143,27 @@ struct BalanceView: View {
         })
     }
 
-    // MARK: - Header
-    private var headerView: some View {
-        HStack {
-            Text("Estadísticas")
-                .font(.custom("Georgia", size: 28))
+    private var balanceToolbarHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Balance")
+                .darkFinanceToolbarTitle(size: 24)
                 .foregroundColor(DarkFinanceColors.primaryText)
 
-            Spacer()
-
-            Picker("", selection: $selectedCurrency) {
-                Text("CUP").tag(Currency.cup)
-                Text("USD").tag(Currency.usd)
+            if selectedTab == .ingresos {
+                Text("Prox. mes: \(estimatedMonthlyIncome, format: .currency(code: selectedCurrency.rawValue))")
+                    .darkFinanceToolbarSubtitle(size: 12, weight: .semibold)
+                    .foregroundColor(DarkFinanceColors.secondaryText)
             }
-            .pickerStyle(.segmented)
-            .frame(width: 120)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var subscriptionsToolbarButton: some View {
+        Button {
+            isShowingSubscriptions = true
+        } label: {
+            Image(systemName: "rectangle.stack.badge.person.crop")
+        }
     }
 
     // MARK: - Tab Picker
@@ -119,78 +197,23 @@ struct BalanceView: View {
         )
     }
 
-    // MARK: - AI Analysis Card
-    private var aiAnalysisCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 14))
-                Text("Análisis IA")
-                    .font(.system(size: 14, weight: .semibold))
-            }
-            .foregroundColor(.white.opacity(0.95))
-
-            if expenseAnalysisManager.isAnalyzing {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(.white)
-                        .scaleEffect(0.7)
-                    Text("Analizando tu gasto...")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.75))
-                }
-            } else if let analysis = expenseAnalysisManager.lastAnalysis {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(analysis)
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(isAnalysisExpanded ? nil : 4)
-                        .animation(.easeInOut(duration: 0.25), value: isAnalysisExpanded)
-
-                    Button {
-                        isAnalysisExpanded.toggle()
-                    } label: {
-                        Text(isAnalysisExpanded ? "Ver menos" : "Ver más")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.75))
-                            .underline()
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: "C026D3"), Color(hex: "7E22CE")],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        )
-        .shadow(color: Color(hex: "C026D3").opacity(0.35), radius: 10, x: 0, y: 4)
-    }
-
     private var debtCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Deudas")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(DarkFinanceTypography.sectionTitle())
                     .foregroundColor(DarkFinanceColors.primaryText)
                 Spacer()
                 NavigationLink(destination: DebtsView()) {
                     Text("Ver todas")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(DarkFinanceTypography.action())
                         .foregroundColor(DarkFinanceColors.primaryAccent)
                 }
             }
 
             if recentDebts.isEmpty {
                 Text("No hay deudas registradas")
-                    .font(.system(size: 14))
+                    .font(DarkFinanceTypography.body())
                     .foregroundColor(DarkFinanceColors.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 20)
@@ -210,28 +233,73 @@ struct BalanceView: View {
         .darkFinanceCard(cornerRadius: 20, padding: 20)
     }
 
+    private var prestamosCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Préstamos")
+                    .font(DarkFinanceTypography.sectionTitle())
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Spacer()
+                NavigationLink(destination: PrestamosView()) {
+                    Text("Ver todos")
+                        .font(DarkFinanceTypography.action())
+                        .foregroundColor(DarkFinanceColors.primaryAccent)
+                }
+            }
+
+            if recentPrestamos.isEmpty {
+                Text("No hay préstamos registrados")
+                    .font(DarkFinanceTypography.body())
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(recentPrestamos) { prestamo in
+                        NavigationLink {
+                            PrestamoDetailView(prestamo: prestamo)
+                        } label: {
+                            prestamoRow(prestamo)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Button {
+                isAddingPrestamo = true
+            } label: {
+                Label("Nuevo préstamo", systemImage: "plus.circle.fill")
+                    .font(DarkFinanceTypography.action(size: 13, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryAccent)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .darkFinanceCard(cornerRadius: 20, padding: 20)
+    }
+
     private var assetsAndJobsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Activos y trabajo")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(DarkFinanceTypography.sectionTitle())
                     .foregroundColor(DarkFinanceColors.primaryText)
                 Spacer()
                 NavigationLink(destination: AssetsAndJobsView()) {
                     Text("Ver todos")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(DarkFinanceTypography.action())
                         .foregroundColor(DarkFinanceColors.primaryAccent)
                 }
             }
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("Activos")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(DarkFinanceTypography.action(size: 13, weight: .semibold))
                     .foregroundColor(DarkFinanceColors.secondaryText)
 
                 if wealthManager.assets.isEmpty {
                     Text("Sin activos")
-                        .font(.system(size: 13))
+                        .font(DarkFinanceTypography.body(size: 13))
                         .foregroundColor(DarkFinanceColors.tertiaryText)
                 } else {
                     ForEach(wealthManager.assets.prefix(3)) { asset in
@@ -390,6 +458,10 @@ struct BalanceView: View {
             .reduce(0) { $0 + $1.amount }
     }
 
+    private var estimatedMonthlyIncome: Double {
+        wealthManager.forecastedMonthlyIncome(in: selectedCurrency)
+    }
+
     private var recentIncomeTransactions: [Transaction] {
         Array(
             transactionManager.transactions
@@ -412,6 +484,46 @@ struct BalanceView: View {
         Array(debtManager.debts.sorted { $0.createdAt > $1.createdAt }.prefix(4))
     }
 
+    private var recentPrestamos: [Prestamo] {
+        Array(prestamoManager.prestamos.sorted { $0.createdAt > $1.createdAt }.prefix(4))
+    }
+
+    private func prestamoRow(_ prestamo: Prestamo) -> some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(prestamo.estaPagado ? Color(.systemGray4) : prestamo.estaVencido ? Color(red: 0.86, green: 0.33, blue: 0.33) : Color(red: 0.20, green: 0.60, blue: 0.46))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(prestamo.nombre)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                Text(prestamo.motivo.isEmpty ? "Préstamo" : prestamo.motivo)
+                    .font(.system(size: 12))
+                    .foregroundColor(DarkFinanceColors.secondaryText)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(prestamo.monto, format: .currency(code: prestamo.moneda.rawValue))
+                    .font(DarkFinanceTypography.monoAmount(size: 13, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                if let fecha = prestamo.fechaDevolucion {
+                    Text(fecha, style: .date)
+                        .font(.system(size: 10))
+                        .foregroundColor(prestamo.estaVencido ? DarkFinanceColors.errorRed : DarkFinanceColors.secondaryText)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
     private func transactionRow(_ transaction: Transaction) -> some View {
         let category = category(for: transaction)
         return HStack(spacing: 12) {
@@ -419,9 +531,7 @@ struct BalanceView: View {
                 .fill(category?.color ?? Color(.systemGray4))
                 .frame(width: 36, height: 36)
                 .overlay(
-                    Image(systemName: category?.icon ?? "tag.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                    CategoryIconView(icon: category?.icon ?? "tag.fill", color: .white, size: 14)
                 )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -515,7 +625,6 @@ struct BalanceView: View {
             liabilityId: transaction.liabilityId
         )
         transactionManager.addTransaction(repeated)
-        walletManager.syncWalletBalance(for: transaction.walletId)
     }
 
     private func showRepeatError(_ message: String) {
@@ -543,49 +652,90 @@ struct BalanceView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 24)
             } else {
-                HStack(spacing: 16) {
-                    VStack(spacing: 10) {
-                        ZStack {
-                            Circle()
-                                .stroke(DarkFinanceColors.cardBorder, lineWidth: 10)
+                VStack(spacing: 16) {
+                    // 3D Donut Chart
+                    ZStack {
+                        // Shadow layer for 3D depth
+                        Chart(slices) { slice in
+                            SectorMark(
+                                angle: .value("Valor", slice.value),
+                                innerRadius: .ratio(0.58),
+                                outerRadius: .ratio(0.95),
+                                angularInset: 1.5
+                            )
+                            .cornerRadius(5)
+                            .foregroundStyle(slice.color.opacity(0.3))
+                        }
+                        .chartLegend(.hidden)
+                        .frame(height: 200)
+                        .offset(y: 8)
+                        .blur(radius: 6)
 
-                            ForEach(Array(slices.enumerated()), id: \.element.id) { index, slice in
-                                PieSlice(
-                                    startAngle: startAngle(for: index, in: slices),
-                                    endAngle: endAngle(for: index, in: slices),
-                                    color: slice.color
+                        // Main chart
+                        Chart(slices) { slice in
+                            SectorMark(
+                                angle: .value("Valor", slice.value),
+                                innerRadius: .ratio(0.58),
+                                outerRadius: .ratio(0.95),
+                                angularInset: 1.5
+                            )
+                            .cornerRadius(5)
+                            .foregroundStyle(
+                                .linearGradient(
+                                    colors: [slice.color.opacity(0.9), slice.color],
+                                    startPoint: .top,
+                                    endPoint: .bottom
                                 )
-                            }
+                            )
+                            .shadow(color: slice.color.opacity(0.4), radius: 4, x: 0, y: 2)
                         }
-                        .frame(width: 140, height: 140)
+                        .chartLegend(.hidden)
+                        .frame(height: 200)
 
-                        VStack(spacing: 2) {
-                            Text("Total")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(DarkFinanceColors.secondaryText)
-                            Text(total, format: .currency(code: selectedCurrency.rawValue))
-                                .font(DarkFinanceTypography.monoAmount(size: 14, weight: .semibold))
-                                .foregroundColor(DarkFinanceColors.primaryText)
-                        }
                     }
+                    .rotation3DEffect(.degrees(12), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+                    .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 8)
 
-                    VStack(alignment: .leading, spacing: 10) {
+                    // Total
+                    VStack(spacing: 2) {
+                        Text("Total")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(DarkFinanceColors.secondaryText)
+                        Text(total, format: .currency(code: selectedCurrency.rawValue))
+                            .font(DarkFinanceTypography.monoAmount(size: 16, weight: .bold))
+                            .foregroundColor(DarkFinanceColors.primaryText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    // Legend
+                    VStack(spacing: 8) {
                         ForEach(slices.prefix(5)) { slice in
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(slice.color)
-                                    .frame(width: 10, height: 10)
+                            HStack(spacing: 10) {
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [slice.color.opacity(0.8), slice.color],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: 14, height: 14)
+                                    .shadow(color: slice.color.opacity(0.3), radius: 2, x: 0, y: 1)
+
                                 Text(slice.name)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundColor(DarkFinanceColors.secondaryText)
                                     .lineLimit(1)
+
                                 Spacer()
+
                                 Text(slice.percent, format: .percent.precision(.fractionLength(0)))
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(DarkFinanceTypography.monoAmount(size: 13, weight: .semibold))
                                     .foregroundColor(DarkFinanceColors.primaryText)
                             }
                         }
                     }
+                    .padding(.horizontal, 4)
                 }
             }
         }
@@ -615,19 +765,6 @@ struct BalanceView: View {
         return slices.sorted { $0.value > $1.value }
     }
 
-    private func startAngle(for index: Int, in slices: [CategorySlice]) -> Angle {
-        let total = slices.reduce(0) { $0 + $1.value }
-        guard total > 0 else { return .degrees(0) }
-        let sum = slices.prefix(index).reduce(0) { $0 + $1.value }
-        return .degrees((sum / total) * 360 - 90)
-    }
-
-    private func endAngle(for index: Int, in slices: [CategorySlice]) -> Angle {
-        let total = slices.reduce(0) { $0 + $1.value }
-        guard total > 0 else { return .degrees(0) }
-        let sum = slices.prefix(index + 1).reduce(0) { $0 + $1.value }
-        return .degrees((sum / total) * 360 - 90)
-    }
 }
 
 // MARK: - Pie Chart
@@ -637,30 +774,4 @@ private struct CategorySlice: Identifiable {
     let value: Double
     let color: Color
     let percent: Double
-}
-
-private struct PieSlice: View {
-    let startAngle: Angle
-    let endAngle: Angle
-    let color: Color
-
-    var body: some View {
-        GeometryReader { geometry in
-            let size = min(geometry.size.width, geometry.size.height)
-            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-            let radius = size / 2
-            let gap: Double = 2
-
-            Path { path in
-                path.addArc(
-                    center: center,
-                    radius: radius,
-                    startAngle: startAngle + .degrees(gap),
-                    endAngle: endAngle - .degrees(gap),
-                    clockwise: false
-                )
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-        }
-    }
 }

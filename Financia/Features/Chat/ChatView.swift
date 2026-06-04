@@ -272,7 +272,7 @@ private struct MarkdownContentView: View {
     /// Parses inline markdown (bold, italic, code) using AttributedString.
     private func inlineMarkdown(_ raw: String) -> AttributedString {
         var options = AttributedString.MarkdownParsingOptions()
-        options.interpretedSyntax = .inlinesOnlyPreservingWhitespace
+        options.interpretedSyntax = .inlineOnly
         if let attributed = try? AttributedString(markdown: raw, options: options) {
             return attributed
         }

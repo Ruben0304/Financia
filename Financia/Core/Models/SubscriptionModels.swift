@@ -6,7 +6,9 @@ struct Subscription: Identifiable, Codable, Hashable {
     var planName: String
     var price: Double
     var currency: Currency
-    var logoSystemName: String
+    var logoImageData: Data?
+    var logoURLString: String?
+    var logoImageFormat: String?
     var isShared: Bool
     var sharedPeopleCount: Int
     var splitEqually: Bool
@@ -22,7 +24,9 @@ struct Subscription: Identifiable, Codable, Hashable {
         planName: String,
         price: Double,
         currency: Currency,
-        logoSystemName: String,
+        logoImageData: Data? = nil,
+        logoURLString: String? = nil,
+        logoImageFormat: String? = nil,
         isShared: Bool,
         sharedPeopleCount: Int,
         splitEqually: Bool = true,
@@ -37,7 +41,9 @@ struct Subscription: Identifiable, Codable, Hashable {
         self.planName = planName
         self.price = price
         self.currency = currency
-        self.logoSystemName = logoSystemName
+        self.logoImageData = logoImageData
+        self.logoURLString = logoURLString
+        self.logoImageFormat = logoImageFormat
         self.isShared = isShared
         self.sharedPeopleCount = max(1, sharedPeopleCount)
         self.splitEqually = splitEqually
@@ -64,7 +70,9 @@ struct SubscriptionTemplate: Identifiable, Codable, Hashable {
     var planName: String
     var price: Double
     var currency: Currency
-    var logoSystemName: String
+    var logoImageData: Data?
+    var logoURLString: String?
+    var logoImageFormat: String?
     var isShared: Bool
     var sharedPeopleCount: Int
     var splitEqually: Bool
@@ -79,7 +87,9 @@ struct SubscriptionTemplate: Identifiable, Codable, Hashable {
         planName: String,
         price: Double,
         currency: Currency,
-        logoSystemName: String,
+        logoImageData: Data? = nil,
+        logoURLString: String? = nil,
+        logoImageFormat: String? = nil,
         isShared: Bool,
         sharedPeopleCount: Int,
         splitEqually: Bool = true,
@@ -93,7 +103,9 @@ struct SubscriptionTemplate: Identifiable, Codable, Hashable {
         self.planName = planName
         self.price = price
         self.currency = currency
-        self.logoSystemName = logoSystemName
+        self.logoImageData = logoImageData
+        self.logoURLString = logoURLString
+        self.logoImageFormat = logoImageFormat
         self.isShared = isShared
         self.sharedPeopleCount = max(1, sharedPeopleCount)
         self.splitEqually = splitEqually
