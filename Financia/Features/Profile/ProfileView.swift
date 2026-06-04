@@ -16,6 +16,14 @@ struct ProfileView: View {
     @State private var accentColor: Color = Color(hex: "FF5C00")
     @State private var automationWalletId: UUID?
 
+    // Claude AI / MCP
+    @State private var mcpToken: String? = nil
+    @State private var isLoadingToken = false
+    @State private var mcpTokenError: String? = nil
+    @State private var tokenCopied = false
+
+    private let mcpServerURL = "https://financia-mcp.up.railway.app/mcp"
+
     var body: some View {
         Form {
             Section {
@@ -122,6 +130,101 @@ struct ProfileView: View {
                         openSettings()
                     }
                 }
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.purple)
+                    Text("Claude AI")
+                        .font(.headline)
+                }
+
+                if let token = mcpToken {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Tu conexión está lista.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
+                        // MCP URL row
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("URL del servidor")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack {
+                                Text(mcpServerURL)
+                                    .font(.caption)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Button {
+                                    UIPasteboard.general.string = mcpServerURL
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                            .padding(8)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .cornerRadius(8)
+                        }
+
+                        // Token row
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Token de acceso")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack {
+                                Text("Bearer \(token)")
+                                    .font(.caption)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Button {
+                                    UIPasteboard.general.string = "Bearer \(token)"
+                                    tokenCopied = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        tokenCopied = false
+                                    }
+                                } label: {
+                                    Image(systemName: tokenCopied ? "checkmark" : "doc.on.doc")
+                                        .font(.caption)
+                                        .foregroundStyle(tokenCopied ? .green : .accentColor)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                            .padding(8)
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .cornerRadius(8)
+                        }
+
+                        Text("En Claude.ai → Settings → Integrations → Add MCP Server. Pega la URL y agrega el header Authorization con el token.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                } else if isLoadingToken {
+                    HStack {
+                        ProgressView()
+                        Text("Generando token…")
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    if let error = mcpTokenError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                    Button("Conectar con Claude") {
+                        fetchMcpToken()
+                    }
+                }
+            } header: {
+                Text("Claude AI")
+            } footer: {
+                Text("Conecta Claude a tus datos de FinancIA para hacer preguntas y registrar gastos desde cualquier dispositivo.")
             }
 
             Section("Color principal") {
@@ -245,8 +348,32 @@ struct ProfileView: View {
         return String(format: "%02X%02X%02X", r, g, b)
     }
 
+    private func fetchMcpToken() {
+        isLoadingToken = true
+        mcpTokenError = nil
+        Task {
+            do {
+                let response = try await APIClient.shared.post(
+                    "/users/mcp-token",
+                    body: Empty(),
+                    as: MCPTokenResponse.self
+                )
+                await MainActor.run { mcpToken = response.token }
+            } catch {
+                await MainActor.run { mcpTokenError = error.localizedDescription }
+            }
+            await MainActor.run { isLoadingToken = false }
+        }
+    }
+
     private func openSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
     }
+}
+
+// MARK: - Supporting types
+
+private struct MCPTokenResponse: Decodable {
+    let token: String
 }
