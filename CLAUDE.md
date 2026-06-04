@@ -15,9 +15,12 @@ Financia is an iOS finance tracking application built with SwiftUI. The app feat
 - Debt tracking with AI-powered repayment scenarios
 - Place/location management for transaction categorization
 - User profile for personalized financial context
-- Local JSON-based persistence (FileManager + Codable)
+- **Backend-synced persistence** — all entities are stored per-user in the MongoDB backend via `APIClient`; the app is no longer local-JSON-only
 - Automatic exchange rate updates via ElToque API
 - Backend integration for AI services (chat, receipt extraction, debt estimation)
+- **Claude / MCP integration** — users mint an MCP token ("Conectar con Claude") to access their data from Claude (claude.ai web + mobile + Claude Code)
+
+> **⚠️ Note on this document:** Sections below that describe *local JSON files* as the only persistence reflect an earlier design. The current source of truth is the **Railway backend** (see "Backend Integration & Sync" below). Managers may still keep an in-memory/local copy for offline UX, but reads/writes are synced to the backend through `APIClient`.
 
 **Platform:** iOS 16.6+, iPhone only
 **Language:** Swift 5.0
@@ -235,6 +238,19 @@ Financia/
 - Unauthenticated users see [WelcomeScreen.swift](Financia/Features/Onboarding/WelcomeScreen.swift)
 - Authentication state managed in [ContentView.swift](Financia/Features/Root/ContentView.swift)
 - Sign in with Apple configured via entitlements
+- The signed-in Apple user id is exposed by `AuthManager.shared.currentUserID` and sent on every backend request as the `X-User-ID` header (see below)
+
+**Backend Integration & Sync:** ([Core/API/](Financia/Core/API/))
+- **`BackendConfig`** ([BackendConfig.swift](Financia/Core/API/BackendConfig.swift)) — base URL `https://financia-backend-production.up.railway.app/api/v1` and `apiKey` read from Info.plist key `BackendAPIKey` (matches the backend's `API_KEY`; `nil` when unset).
+- **`APIClient`** ([APIClient.swift](Financia/Core/API/APIClient.swift)) — thin async `URLSession` wrapper (`get`/`getList`/`post`/`put`/`patch`/`delete`). Automatically attaches `X-API-Key` (if set) and `X-User-ID` (from `AuthManager`). ISO-8601 dates, typed `APIError`, verbose `[API]` logging in DEBUG.
+- **Per-user CRUD sync:** nearly every manager (`TransactionManager`, `WalletManager`, `CategoryManager`, `DebtManager`, `SavingsGoalManager`, `LugarManager`, `ProfileManager`, `PrestamoManager`, `WealthManager`, `SubscriptionManager`, `AutomatedDraftManager`, `ExchangeRateManager`) reads/writes through `APIClient`. The backend is the source of truth; data is scoped server-side by `X-User-ID`.
+- **Backend routes** mirror the iOS models (`/wallets/`, `/transactions/`, `/categories/income/`, `/debts/`, `/savings-goals/`, `/prestamos/`, `/wealth/{assets,jobs,liabilities}/`, `/subscriptions/`, `/profile/`, `/lugares/`, `/exchange-rates/`). See the backend repo's `CLAUDE.md`. Collection paths use a **trailing slash**.
+- iCloud/CloudKit status is surfaced in Profile via `CloudKitStatusManager` (informational), but the primary sync layer is the backend.
+
+**Claude AI / MCP Integration:** ([ProfileView.swift](Financia/Features/Profile/ProfileView.swift))
+- The Profile screen has a **"Claude AI"** section. "Conectar con Claude" calls `POST /users/mcp-token` (via `APIClient`) and shows the MCP server URL + `Bearer <token>` with copy buttons.
+- The token is the credential for the external **FinancIA MCP server** (`https://financia-mcp.up.railway.app/mcp`), which exposes the user's data to Claude (claude.ai web + mobile + Claude Code) over OAuth 2.1 (the user pastes this token during the connector login).
+- Tokens are stable per user (the endpoint returns the existing one if present). Revoking is a backend `DELETE /users/mcp-token` (no in-app button yet).
 
 **Design System:**
 - All views use `AuroraBackground` from [DesignSystem.swift](Financia/Core/DesignSystem/DesignSystem.swift)
@@ -592,12 +608,11 @@ for try await chunk in ChatService.shared.sendMessage(fullPrompt) {
 
 **Known Limitations:**
 - Sample data generation removed (now using real persistence)
-- No cloud sync (all data stored locally)
 - No data export functionality
-- No recurring transactions support
-- No budgeting/savings goals features
-- No multi-user support
 - No transaction search beyond filtering
+- No in-app MCP-token revoke button (revocation is a backend `DELETE /users/mcp-token`)
+
+> Outdated limitations now resolved: data **is** synced to the backend per user (multi-user via `X-User-ID`), and savings goals are implemented.
 
 **Potential Enhancements:**
 - Include user profile in chat context (currently only in debt estimation)
@@ -616,13 +631,13 @@ for try await chunk in ChatService.shared.sendMessage(fullPrompt) {
 **Entitlements:** The app uses Sign in with Apple capability. See [Financia.entitlements](Financia/Financia.entitlements).
 
 **Backend Integration:** The app connects to a production backend hosted on Railway:
-- Base URL: `https://financia-backend-production.up.railway.app`
-- Endpoints: `/api/v1/assistant/chat/stream`, `/api/v1/assistant/debt/estimate`, `/api/v1/receipt/extract`
-- All API communication uses JSON encoding with snake_case conversion
-- Chat uses streaming responses via AsyncThrowingStream
-- Receipt extraction uses multipart/form-data for image upload
+- Base URL: `https://financia-backend-production.up.railway.app` (see [BackendConfig.swift](Financia/Core/API/BackendConfig.swift))
+- **CRUD/sync** for all entities goes through `APIClient` (`/api/v1/wallets/`, `/transactions/`, `/debts/`, `/profile/`, `/users/mcp-token`, …) with `X-API-Key` + `X-User-ID` headers.
+- **AI** endpoints: `/api/v1/assistant/chat/stream` (streaming via AsyncThrowingStream), `/api/v1/assistant/debt/estimate`, `/api/v1/assistant/receipt/extract` (multipart image upload).
+- All JSON uses ISO-8601 dates. Collection paths require a **trailing slash** (a missing slash triggers a 307 that Railway downgrades to http).
+- See the backend repo's `CLAUDE.md` for the full endpoint map and auth model.
 
-**Persistence Strategy:** All data stored locally in JSON files in Documents directory. No cloud sync implemented. App operates offline except for AI features (chat, debt estimation, receipt extraction) and exchange rate updates.
+**Persistence Strategy:** The **Railway/MongoDB backend is the source of truth**, scoped per user via `X-User-ID`. Managers sync reads/writes through `APIClient` and may cache locally (and/or surface CloudKit status via `CloudKitStatusManager`) for offline UX. The older "everything is local JSON, no cloud sync" model is no longer accurate — treat backend sync as primary.
 
 **Error Handling:** API services implement custom error enums (`ChatAPIError`, `DebtAPIError`, `ReceiptAPIError`) with detailed error cases for network failures, invalid responses, and decoding issues.
 
