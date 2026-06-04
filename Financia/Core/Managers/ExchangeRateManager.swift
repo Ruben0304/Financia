@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftData
 
 // Modelo para caché de tasas de cambio
 struct ExchangeRateCache: Codable {
@@ -24,9 +25,9 @@ class ExchangeRateManager: ObservableObject {
         didSet { saveManualUsdRate() }
     }
 
-    private let persistence = PersistenceManager.shared
-    private let cacheFilename = "exchange_rates.json"
-    private let manualUsdRateFilename = "manual_usd_rate.json"
+    private let container = PersistenceManager.shared.container
+    private let cacheKey = "exchange_rates"
+    private let manualUsdRateKey = "manual_usd_rate"
     private let cacheExpirationDays = 1
     private var api: ElToqueAPI?
 
@@ -44,12 +45,16 @@ class ExchangeRateManager: ObservableObject {
     // MARK: - Cache Management
 
     private func loadFromCache() {
-        guard persistence.fileExists(cacheFilename) else { return }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ExchangeRateCacheEntity>(
+            predicate: #Predicate { $0.key == "exchange_rates" }
+        )
 
         do {
-            let cache = try persistence.load(from: cacheFilename, as: ExchangeRateCache.self)
-            self.rates = cache.rates
-            self.lastUpdated = cache.lastUpdated
+            if let entity = try context.fetch(descriptor).first {
+                rates = SwiftDataBridge.decode([String: Double].self, from: entity.ratesData) ?? [:]
+                lastUpdated = entity.lastUpdated
+            }
         } catch {
             print("Error loading exchange rates cache: \(error)")
         }
@@ -58,35 +63,60 @@ class ExchangeRateManager: ObservableObject {
     private func saveToCache() {
         guard let lastUpdated = lastUpdated else { return }
 
-        let cache = ExchangeRateCache(rates: rates, lastUpdated: lastUpdated)
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ExchangeRateCacheEntity>(
+            predicate: #Predicate { $0.key == "exchange_rates" }
+        )
+
         do {
-            try persistence.save(cache, to: cacheFilename)
+            if let entity = try context.fetch(descriptor).first {
+                entity.ratesData = SwiftDataBridge.encode(rates)
+                entity.lastUpdated = lastUpdated
+            } else {
+                context.insert(
+                    ExchangeRateCacheEntity(
+                        key: cacheKey,
+                        ratesData: SwiftDataBridge.encode(rates),
+                        lastUpdated: lastUpdated
+                    )
+                )
+            }
+            try context.save()
         } catch {
             print("Error saving exchange rates cache: \(error)")
         }
     }
 
     private func loadManualUsdRate() {
-        guard persistence.fileExists(manualUsdRateFilename) else { return }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ManualUsdRateEntity>(
+            predicate: #Predicate { $0.key == "manual_usd_rate" }
+        )
+
         do {
-            let cache = try persistence.load(from: manualUsdRateFilename, as: ManualUsdRateCache.self)
-            manualUsdToCupRate = cache.usdToCup
+            manualUsdToCupRate = try context.fetch(descriptor).first?.usdToCup
         } catch {
             print("Error loading manual USD rate: \(error)")
         }
     }
 
     private func saveManualUsdRate() {
-        guard let rate = manualUsdToCupRate, rate > 0 else {
-            if persistence.fileExists(manualUsdRateFilename) {
-                try? persistence.delete(manualUsdRateFilename)
-            }
-            return
-        }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ManualUsdRateEntity>(
+            predicate: #Predicate { $0.key == "manual_usd_rate" }
+        )
 
-        let cache = ManualUsdRateCache(usdToCup: rate)
         do {
-            try persistence.save(cache, to: manualUsdRateFilename)
+            if let existing = try context.fetch(descriptor).first {
+                if let rate = manualUsdToCupRate, rate > 0 {
+                    existing.usdToCup = rate
+                } else {
+                    context.delete(existing)
+                }
+            } else if let rate = manualUsdToCupRate, rate > 0 {
+                context.insert(ManualUsdRateEntity(key: manualUsdRateKey, usdToCup: rate))
+            }
+            try context.save()
         } catch {
             print("Error saving manual USD rate: \(error)")
         }

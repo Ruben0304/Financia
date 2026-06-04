@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import SwiftData
 
 // Manager para operaciones CRUD de carteras
 class WalletManager: ObservableObject {
@@ -9,8 +10,7 @@ class WalletManager: ObservableObject {
 
     @Published var wallets: [Wallet] = []
 
-    private let persistence = PersistenceManager.shared
-    private let filename = "wallets.json"
+    private let container = PersistenceManager.shared.container
     private let transactionManager = TransactionManager.shared
 
     private init() {
@@ -20,14 +20,12 @@ class WalletManager: ObservableObject {
     // MARK: - CRUD Operations
 
     func loadWallets() {
-        guard persistence.fileExists(filename) else {
-            // Crear cartera por defecto si no existe ninguna
-            createDefaultWallet()
-            return
-        }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<WalletEntity>()
 
         do {
-            wallets = try persistence.load(from: filename, as: [Wallet].self)
+            let entities = try context.fetch(descriptor)
+            wallets = entities.map(Self.makeWallet(from:))
             if wallets.isEmpty {
                 createDefaultWallet()
             }
@@ -38,8 +36,14 @@ class WalletManager: ObservableObject {
     }
 
     private func saveWallets() {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<WalletEntity>()
+
         do {
-            try persistence.save(wallets, to: filename)
+            let existing = try context.fetch(descriptor)
+            existing.forEach { context.delete($0) }
+            wallets.map(Self.makeEntity).forEach { context.insert($0) }
+            try context.save()
         } catch {
             print("Error saving wallets: \(error)")
         }
@@ -136,5 +140,36 @@ class WalletManager: ObservableObject {
             // Sin conversión, simplemente sumar
             return wallets.reduce(0) { $0 + calculateBalance(for: $1) }
         }
+    }
+
+    private static func makeWallet(from entity: WalletEntity) -> Wallet {
+        Wallet(
+            id: entity.id,
+            name: entity.name,
+            currency: Currency(rawValue: entity.currencyRaw) ?? .cup,
+            balance: entity.balance,
+            icon: entity.icon,
+            color: SwiftDataBridge.color(
+                red: entity.colorRed,
+                green: entity.colorGreen,
+                blue: entity.colorBlue,
+                opacity: entity.colorOpacity
+            )
+        )
+    }
+
+    private static func makeEntity(from wallet: Wallet) -> WalletEntity {
+        let c = SwiftDataBridge.components(from: wallet.color)
+        return WalletEntity(
+            id: wallet.id,
+            name: wallet.name,
+            currencyRaw: wallet.currency.rawValue,
+            balance: wallet.balance,
+            icon: wallet.icon,
+            colorRed: c.red,
+            colorGreen: c.green,
+            colorBlue: c.blue,
+            colorOpacity: c.opacity
+        )
     }
 }

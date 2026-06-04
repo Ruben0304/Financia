@@ -1,26 +1,24 @@
 import Foundation
 import Combine
+import SwiftData
 
 class DebtManager: ObservableObject {
     static let shared = DebtManager()
 
     @Published var debts: [Debt] = []
 
-    private let persistence = PersistenceManager.shared
-    private let filename = "debts.json"
+    private let container = PersistenceManager.shared.container
 
     private init() {
         loadDebts()
     }
 
     func loadDebts() {
-        guard persistence.fileExists(filename) else {
-            debts = []
-            return
-        }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<DebtEntity>()
 
         do {
-            debts = try persistence.load(from: filename, as: [Debt].self)
+            debts = try context.fetch(descriptor).map(Self.makeDebt(from:))
         } catch {
             print("Error loading debts: \(error)")
             debts = []
@@ -28,8 +26,14 @@ class DebtManager: ObservableObject {
     }
 
     private func saveDebts() {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<DebtEntity>()
+
         do {
-            try persistence.save(debts, to: filename)
+            let existing = try context.fetch(descriptor)
+            existing.forEach { context.delete($0) }
+            debts.map(Self.makeEntity).forEach { context.insert($0) }
+            try context.save()
         } catch {
             print("Error saving debts: \(error)")
         }
@@ -50,5 +54,35 @@ class DebtManager: ObservableObject {
     func deleteDebt(_ debt: Debt) {
         debts.removeAll { $0.id == debt.id }
         saveDebts()
+    }
+
+    private static func makeDebt(from entity: DebtEntity) -> Debt {
+        Debt(
+            id: entity.id,
+            nombre: entity.nombre,
+            motivo: entity.motivo,
+            monto: entity.monto,
+            moneda: Currency(rawValue: entity.monedaRaw) ?? .cup,
+            plazoMeses: entity.plazoMeses,
+            createdAt: entity.createdAt,
+            lastEstimate: SwiftDataBridge.decode(DebtEstimateResponse.self, from: entity.lastEstimateData),
+            montoOriginal: entity.montoOriginal,
+            pagos: SwiftDataBridge.decode([DebtPayment].self, from: entity.pagosData) ?? []
+        )
+    }
+
+    private static func makeEntity(from debt: Debt) -> DebtEntity {
+        DebtEntity(
+            id: debt.id,
+            nombre: debt.nombre,
+            motivo: debt.motivo,
+            monto: debt.monto,
+            monedaRaw: debt.moneda.rawValue,
+            plazoMeses: debt.plazoMeses,
+            createdAt: debt.createdAt,
+            lastEstimateData: debt.lastEstimate.map(SwiftDataBridge.encode),
+            montoOriginal: debt.montoOriginal,
+            pagosData: SwiftDataBridge.encode(debt.pagos)
+        )
     }
 }

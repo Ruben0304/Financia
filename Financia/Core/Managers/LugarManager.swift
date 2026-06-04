@@ -1,26 +1,24 @@
 import Foundation
 import Combine
+import SwiftData
 
 class LugarManager: ObservableObject {
     static let shared = LugarManager()
 
     @Published var lugares: [Lugar] = []
 
-    private let persistence = PersistenceManager.shared
-    private let filename = "lugares.json"
+    private let container = PersistenceManager.shared.container
 
     private init() {
         loadLugares()
     }
 
     func loadLugares() {
-        guard persistence.fileExists(filename) else {
-            lugares = []
-            return
-        }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<LugarEntity>()
 
         do {
-            lugares = try persistence.load(from: filename, as: [Lugar].self)
+            lugares = try context.fetch(descriptor).map(Self.makeLugar(from:))
         } catch {
             print("Error loading lugares: \(error)")
             lugares = []
@@ -28,8 +26,14 @@ class LugarManager: ObservableObject {
     }
 
     private func saveLugares() {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<LugarEntity>()
+
         do {
-            try persistence.save(lugares, to: filename)
+            let existing = try context.fetch(descriptor)
+            existing.forEach { context.delete($0) }
+            lugares.map(Self.makeEntity).forEach { context.insert($0) }
+            try context.save()
         } catch {
             print("Error saving lugares: \(error)")
         }
@@ -107,5 +111,23 @@ class LugarManager: ObservableObject {
             }
         }
         return merged
+    }
+
+    private static func makeLugar(from entity: LugarEntity) -> Lugar {
+        Lugar(
+            id: entity.id,
+            nombre: entity.nombre,
+            visualKeywords: SwiftDataBridge.decode([String].self, from: entity.visualKeywordsData),
+            backendId: entity.backendId
+        )
+    }
+
+    private static func makeEntity(from lugar: Lugar) -> LugarEntity {
+        LugarEntity(
+            id: lugar.id,
+            nombre: lugar.nombre,
+            visualKeywordsData: lugar.visualKeywords.map(SwiftDataBridge.encode),
+            backendId: lugar.backendId
+        )
     }
 }

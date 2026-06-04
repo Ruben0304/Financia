@@ -3,14 +3,120 @@ import LinkPresentation
 
 struct SavingsGoalDetailView: View {
     @EnvironmentObject var savingsGoalManager: SavingsGoalManager
-    @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var wealthManager: WealthManager
+    @EnvironmentObject var profileManager: ProfileManager
 
     let goal: SavingsGoal
 
-    @State private var showingAddContribution = false
+    @State private var aporteInicialMode: SavingsProjectionMode = .percentage
+    @State private var baseInicialManual: Double = 0
+    @State private var aporteInicialPorcentaje: Double = 0
+    @State private var aporteInicialCantidadManual: Double = 0
+    @State private var aportePronosticoMode: SavingsProjectionMode = .percentage
+    @State private var aportePronosticoPorcentaje: Double = 0
+    @State private var aportePronosticoCantidadManual: Double = 0
+    @State private var didLoadProjectionState = false
 
     private var currentGoal: SavingsGoal {
         savingsGoalManager.savingsGoals.first(where: { $0.id == goal.id }) ?? goal
+    }
+
+    private var incomeEvents: [ProjectedIncomeEvent] {
+        wealthManager.incomeEvents(in: currentGoal.moneda)
+    }
+
+    private var pronosticoMensual: Double {
+        wealthManager.forecastedMonthlyIncome(in: currentGoal.moneda)
+    }
+
+    private var aporteInicialProyectado: Double {
+        switch aporteInicialMode {
+        case .percentage:
+            return max(baseInicialManual, 0) * (aporteInicialPorcentaje / 100)
+        case .manualAmount:
+            return max(aporteInicialCantidadManual, 0)
+        }
+    }
+
+    private var aporteMensualProyectado: Double {
+        switch aportePronosticoMode {
+        case .percentage:
+            return pronosticoMensual * (aportePronosticoPorcentaje / 100)
+        case .manualAmount:
+            return Double(incomeEvents.count) * max(aportePronosticoCantidadManual, 0)
+        }
+    }
+
+    private var tiempoRestanteTexto: String {
+        if currentGoal.alcanzado {
+            return "Meta alcanzada"
+        }
+
+        guard let projection = projectedGoalDate else {
+            return "Sin pronóstico suficiente"
+        }
+        return projection.relativeDescription
+    }
+
+    private var fechaEstimadaTexto: String {
+        if currentGoal.alcanzado {
+            return "Disponible ahora"
+        }
+        if let projection = projectedGoalDate {
+            return projection.date.formatted(date: .abbreviated, time: .omitted)
+        }
+        return "Sin fecha estimada"
+    }
+
+    private var fechaEstimadaCortaTexto: String? {
+        guard !currentGoal.alcanzado, let projection = projectedGoalDate else { return nil }
+        return "Estimado para \(projection.date.formatted(.dateTime.day().month(.abbreviated)))"
+    }
+
+    private var accentColor: Color {
+        Color(hex: profileManager.profile.accentColorHex ?? "FF5C00")
+    }
+
+    private var projectedGoalDate: GoalProjectionResult? {
+        let remainingAfterCurrent = max(currentGoal.montoPendiente - aporteInicialProyectado, 0)
+        if remainingAfterCurrent <= 0 {
+            return GoalProjectionResult(date: Date(), relativeDescription: "La alcanzarías con tu aporte inicial")
+        }
+
+        let scheduledEvents = incomeEvents
+            .compactMap { income -> ScheduledSavingsContribution? in
+                let amount = projectedAmount(for: income)
+                guard amount > 0 else { return nil }
+                return ScheduledSavingsContribution(dayOfMonth: income.dayOfMonth, amount: amount)
+            }
+            .sorted { $0.dayOfMonth < $1.dayOfMonth }
+
+        guard !scheduledEvents.isEmpty else { return nil }
+
+        let calendar = Calendar.current
+        let startDate = Date()
+
+        var accumulated = 0.0
+        for monthOffset in 0..<36 {
+            let monthDate = calendar.date(byAdding: .month, value: monthOffset, to: startDate) ?? startDate
+            let range = calendar.range(of: .day, in: .month, for: monthDate) ?? (1..<32)
+
+            for event in scheduledEvents {
+                let day = min(max(event.dayOfMonth, 1), range.count)
+                guard let eventDate = calendar.date(bySetting: .day, value: day, of: monthDate) else { continue }
+                if eventDate < startDate { continue }
+
+                accumulated += event.amount
+                if accumulated >= remainingAfterCurrent {
+                    return GoalProjectionResult(
+                        date: eventDate,
+                        relativeDescription: relativeDescription(from: startDate, to: eventDate)
+                    )
+                }
+            }
+        }
+
+        return nil
     }
 
     var body: some View {
@@ -35,6 +141,12 @@ struct SavingsGoalDetailView: View {
                         Text(currentGoal.nombre)
                             .font(.title2.weight(.semibold))
                             .multilineTextAlignment(.center)
+
+                        if let fechaEstimadaCortaTexto {
+                            Text(fechaEstimadaCortaTexto)
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(.secondary)
+                        }
 
                         if !currentGoal.descripcion.isEmpty {
                             Text(currentGoal.descripcion)
@@ -92,13 +204,30 @@ struct SavingsGoalDetailView: View {
                 .padding(.vertical, 4)
             }
 
-            if !currentGoal.alcanzado {
-                Section {
-                    Button {
-                        showingAddContribution = true
-                    } label: {
-                        Label("Agregar dinero", systemImage: "plus.circle.fill")
-                    }
+            Section("Proyección") {
+                LabeledContent("Pronóstico próximo mes") {
+                    Text(pronosticoMensual, format: .currency(code: currentGoal.moneda.rawValue))
+                }
+
+                initialProjectionSection
+                forecastProjectionSection
+
+                LabeledContent("Aporte inicial estimado") {
+                    Text(aporteInicialProyectado, format: .currency(code: currentGoal.moneda.rawValue))
+                }
+
+                LabeledContent("Aporte mensual estimado") {
+                    Text(aporteMensualProyectado, format: .currency(code: currentGoal.moneda.rawValue))
+                }
+
+                LabeledContent("Fecha estimada") {
+                    Text(fechaEstimadaTexto)
+                        .multilineTextAlignment(.trailing)
+                }
+
+                LabeledContent("Tiempo restante") {
+                    Text(tiempoRestanteTexto)
+                        .multilineTextAlignment(.trailing)
                 }
             }
 
@@ -113,161 +242,184 @@ struct SavingsGoalDetailView: View {
                     }
                 }
             }
-
-            if !currentGoal.contribuciones.isEmpty {
-                Section("Historial de aportes") {
-                    ForEach(currentGoal.contribuciones.sorted { $0.fecha > $1.fecha }) { contribution in
-                        ContributionRow(contribution: contribution, currency: currentGoal.moneda)
-                    }
-                }
-            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Meta de ahorro")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingAddContribution) {
-            AddContributionSheet(goal: currentGoal)
-                .environmentObject(savingsGoalManager)
-                .environmentObject(walletManager)
+        .onAppear {
+            guard !didLoadProjectionState else { return }
+            syncProjectionStateFromGoal()
+            didLoadProjectionState = true
         }
+        .onChange(of: aporteInicialMode) { _ in persistProjectionSettings() }
+        .onChange(of: baseInicialManual) { _ in persistProjectionSettings() }
+        .onChange(of: aporteInicialPorcentaje) { _ in persistProjectionSettings() }
+        .onChange(of: aporteInicialCantidadManual) { _ in persistProjectionSettings() }
+        .onChange(of: aportePronosticoMode) { _ in persistProjectionSettings() }
+        .onChange(of: aportePronosticoPorcentaje) { _ in persistProjectionSettings() }
+        .onChange(of: aportePronosticoCantidadManual) { _ in persistProjectionSettings() }
     }
-}
 
-private struct AddContributionSheet: View {
-    @EnvironmentObject var savingsGoalManager: SavingsGoalManager
-    @EnvironmentObject var walletManager: WalletManager
-    @Environment(\.dismiss) private var dismiss
+    private var initialProjectionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Usar de lo que tienes")
+                .font(.subheadline.weight(.semibold))
 
-    let goal: SavingsGoal
-
-    @State private var contributionAmount: String = ""
-    @State private var selectedWallet: Wallet?
-    @State private var contributionNote: String = ""
-    @State private var showError = false
-    @State private var errorMessage = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Monto") {
-                    TextField("0.00", text: $contributionAmount)
-                        .keyboardType(.decimalPad)
-                }
-
-                Section("Cartera") {
-                    Picker("Cartera", selection: $selectedWallet) {
-                        ForEach(walletManager.wallets.filter { $0.currency == goal.moneda }) { wallet in
-                            Text(wallet.name).tag(wallet as Wallet?)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-
-                Section("Nota") {
-                    TextField("Opcional", text: $contributionNote)
-                }
+            Picker("Modo aporte inicial", selection: $aporteInicialMode) {
+                Text("Porcentaje").tag(SavingsProjectionMode.percentage)
+                Text("Cantidad").tag(SavingsProjectionMode.manualAmount)
             }
-            .navigationTitle("Agregar dinero")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") {
-                        dismiss()
-                    }
+            .pickerStyle(.segmented)
+
+            if aporteInicialMode == .percentage {
+                LabeledContent("Base manual actual") {
+                    TextField(
+                        "0",
+                        value: $baseInicialManual,
+                        format: .number.precision(.fractionLength(0...2))
+                    )
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Guardar") {
-                        saveContribution()
-                    }
-                    .disabled(!canSaveContribution)
-                }
-            }
-            .alert("No se pudo guardar", isPresented: $showError, actions: {
-                Button("OK", role: .cancel) {}
-            }, message: {
-                Text(errorMessage)
-            })
-            .scrollDismissesKeyboard(.interactively)
-            .keyboardDoneToolbar()
-            .onAppear {
-                selectedWallet = walletManager.wallets.first { $0.currency == goal.moneda }
-            }
-        }
-    }
 
-    private var canSaveContribution: Bool {
-        guard let amount = parseAmount(contributionAmount), amount > 0,
-              let wallet = selectedWallet else {
-            return false
-        }
-        return walletManager.calculateBalance(for: wallet) >= amount
-    }
-
-    private func saveContribution() {
-        guard let amount = parseAmount(contributionAmount), amount > 0 else {
-            showErrorMessage("Ingresa un monto válido.")
-            return
-        }
-        guard let wallet = selectedWallet else {
-            showErrorMessage("Selecciona una cartera.")
-            return
-        }
-        let available = walletManager.calculateBalance(for: wallet)
-        guard available >= amount else {
-            showErrorMessage("El saldo de la cartera no es suficiente.")
-            return
-        }
-
-        let contribution = SavingsContribution(
-            monto: amount,
-            walletId: wallet.id,
-            nota: contributionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : contributionNote
-        )
-
-        savingsGoalManager.addContribution(to: goal.id, contribution: contribution)
-        dismiss()
-    }
-
-    private func parseAmount(_ text: String) -> Double? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
-        return Double(normalized)
-    }
-
-    private func showErrorMessage(_ message: String) {
-        errorMessage = message
-        showError = true
-    }
-}
-
-private struct ContributionRow: View {
-    let contribution: SavingsContribution
-    let currency: Currency
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(contribution.fecha, style: .date)
-                    .font(.subheadline.weight(.semibold))
-                if let nota = contribution.nota {
-                    Text(nota)
-                        .font(.caption)
+                HStack {
+                    Text("Porcentaje")
+                    Spacer()
+                    Text(aporteInicialPorcentaje / 100, format: .percent.precision(.fractionLength(0)))
                         .foregroundColor(.secondary)
                 }
+
+                Slider(value: $aporteInicialPorcentaje, in: 0...100, step: 1)
+                    .tint(accentColor)
+            } else {
+                LabeledContent("Cantidad inicial") {
+                    TextField(
+                        "0",
+                        value: $aporteInicialCantidadManual,
+                        format: .number.precision(.fractionLength(0...2))
+                    )
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                }
             }
-
-            Spacer()
-
-            Text(contribution.monto, format: .currency(code: currency.rawValue))
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(Color(red: 0.20, green: 0.60, blue: 0.46))
         }
         .padding(.vertical, 4)
     }
+
+    private var forecastProjectionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Usar del pronóstico")
+                .font(.subheadline.weight(.semibold))
+
+            Picker("Modo pronóstico", selection: $aportePronosticoMode) {
+                Text("Porcentaje").tag(SavingsProjectionMode.percentage)
+                Text("Cantidad").tag(SavingsProjectionMode.manualAmount)
+            }
+            .pickerStyle(.segmented)
+
+            if aportePronosticoMode == .percentage {
+                HStack {
+                    Text("Porcentaje")
+                    Spacer()
+                    Text(aportePronosticoPorcentaje / 100, format: .percent.precision(.fractionLength(0)))
+                        .foregroundColor(.secondary)
+                }
+
+                Slider(value: $aportePronosticoPorcentaje, in: 0...100, step: 1)
+                    .tint(accentColor)
+            } else {
+                LabeledContent("Cantidad por cobro") {
+                    TextField(
+                        "0",
+                        value: $aportePronosticoCantidadManual,
+                        format: .number.precision(.fractionLength(0...2))
+                    )
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func syncProjectionStateFromGoal() {
+        aporteInicialMode = currentGoal.aporteInicialMode
+        baseInicialManual = currentGoal.baseInicialManual
+        aporteInicialPorcentaje = currentGoal.aporteInicialPorcentaje
+        aporteInicialCantidadManual = currentGoal.aporteInicialCantidadManual
+        aportePronosticoMode = currentGoal.aportePronosticoMode
+        aportePronosticoPorcentaje = currentGoal.aportePronosticoPorcentaje
+        aportePronosticoCantidadManual = currentGoal.aportePronosticoCantidadManual
+    }
+
+    private func persistProjectionSettings() {
+        guard didLoadProjectionState else { return }
+        savingsGoalManager.updateProjectionSettings(
+            for: currentGoal.id,
+            aporteInicialMode: aporteInicialMode,
+            baseInicialManual: baseInicialManual,
+            aporteInicialPorcentaje: aporteInicialPorcentaje,
+            aporteInicialCantidadManual: aporteInicialCantidadManual,
+            aportePronosticoMode: aportePronosticoMode,
+            aportePronosticoPorcentaje: aportePronosticoPorcentaje,
+            aportePronosticoCantidadManual: aportePronosticoCantidadManual
+        )
+    }
+
+    private func projectedAmount(for income: ProjectedIncomeEvent) -> Double {
+        switch aportePronosticoMode {
+        case .percentage:
+            return income.amount * (aportePronosticoPorcentaje / 100)
+        case .manualAmount:
+            return max(aportePronosticoCantidadManual, 0)
+        }
+    }
+
+    private func relativeDescription(from startDate: Date, to eventDate: Date) -> String {
+        let calendar = Calendar.current
+        let totalDays = max(
+            calendar.dateComponents(
+                [.day],
+                from: calendar.startOfDay(for: startDate),
+                to: calendar.startOfDay(for: eventDate)
+            ).day ?? 0,
+            0
+        )
+
+        let months = totalDays / 30
+        let days = totalDays % 30
+        let dayText = eventDate.formatted(.dateTime.day().month(.abbreviated))
+
+        if totalDays == 0 {
+            return "Aprox. hoy · \(dayText)"
+        }
+        if totalDays < 30 {
+            let dayLabel = totalDays == 1 ? "1 día" : "\(totalDays) días"
+            return "Aprox. \(dayLabel) · \(dayText)"
+        }
+        if months > 0 && days > 0 {
+            let monthLabel = months == 1 ? "1 mes" : "\(months) meses"
+            let dayLabel = days == 1 ? "1 día" : "\(days) días"
+            return "Aprox. \(monthLabel) y \(dayLabel) · \(dayText)"
+        }
+        if months > 0 {
+            let monthLabel = months == 1 ? "1 mes" : "\(months) meses"
+            return "Aprox. \(monthLabel) · \(dayText)"
+        }
+        return "Aprox. 30 días · \(dayText)"
+    }
 }
 
-// LinkPresentation View para preview
+private struct ScheduledSavingsContribution {
+    let dayOfMonth: Int
+    let amount: Double
+}
+
+private struct GoalProjectionResult {
+    let date: Date
+    let relativeDescription: String
+}
+
 struct LinkPreviewView: UIViewRepresentable {
     let url: URL
 
@@ -300,6 +452,7 @@ struct LinkPreviewView: UIViewRepresentable {
         )
         SavingsGoalDetailView(goal: goal)
             .environmentObject(SavingsGoalManager.shared)
-            .environmentObject(WalletManager.shared)
+            .environmentObject(WealthManager.shared)
+            .environmentObject(ProfileManager.shared)
     }
 }

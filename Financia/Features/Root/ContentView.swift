@@ -2,33 +2,40 @@ import SwiftUI
 import Combine
 
 struct ContentView: View {
-    @AppStorage("invitationValidated") private var invitationValidated = false
-    @State private var selectedRange: DateRange = .month
-    @State private var entrySheetKind: FinanceEntryFlow?
-    @State private var isReceiptScannerPresented = false
-    @State private var receiptReviewData: ReceiptReviewData?
-
+    @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var transactionManager: TransactionManager
+    @EnvironmentObject var automatedDraftManager: AutomatedDraftManager
     @EnvironmentObject var categoryManager: CategoryManager
     @EnvironmentObject var exchangeRateManager: ExchangeRateManager
     @EnvironmentObject var profileManager: ProfileManager
     @EnvironmentObject var wealthManager: WealthManager
     @EnvironmentObject var expenseAnalysisManager: ExpenseAnalysisManager
 
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var selectedRange: DateRange = .month
+    @State private var entrySheetKind: FinanceEntryFlow?
+    @State private var isReceiptScannerPresented = false
+    @State private var receiptReviewData: ReceiptReviewData?
+
     var body: some View {
         ZStack(alignment: .top) {
             Color(.systemBackground)
 
-            if invitationValidated {
+            switch authManager.state {
+            case .unauthenticated:
+                WelcomeScreen()
+                    .transition(.opacity)
+
+            case .pendingInvitation(let appleUserID, let name):
+                InvitationAccessView(appleUserID: appleUserID, appleName: name)
+                    .transition(.opacity)
+
+            case .authenticated:
                 authenticatedTabs
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            } else {
-                InvitationAccessView()
-                    .transition(.opacity)
             }
 
-            // Notification banner
             if expenseAnalysisManager.showNotification {
                 AINotificationBanner()
                     .padding(.top, 60)
@@ -39,8 +46,13 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .tint(accentColor)
+        .animation(.easeInOut(duration: 0.55), value: authManager.state)
         .animation(.easeInOut(duration: 0.4), value: expenseAnalysisManager.showNotification)
-        .animation(.easeInOut(duration: 0.55), value: invitationValidated)
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                automatedDraftManager.loadDrafts()
+            }
+        }
         .sheet(item: $entrySheetKind) { kind in
             AddEntrySheet(kind: kind) { result in
                 handleNewEntry(result)
@@ -59,11 +71,11 @@ struct ContentView: View {
             ReceiptReviewView(data: data)
         }
         .onOpenURL { url in
-            guard invitationValidated else { return }
-            if url.host == "add-expense" {
-                entrySheetKind = .expense
-            } else if url.host == "add-income" {
-                entrySheetKind = .income
+            if url.host == "import-draft" || url.host == "import-drafts" {
+                _ = automatedDraftManager.importFromURL(url)
+            } else if case .authenticated = authManager.state {
+                if url.host == "add-expense" { entrySheetKind = .expense }
+                else if url.host == "add-income" { entrySheetKind = .income }
             }
         }
     }
@@ -77,47 +89,23 @@ struct ContentView: View {
                 onScanReceipt: handleScanReceipt
             )
             .ignoresSafeArea()
-            .tabItem {
-                Label("Inicio", systemImage: "house.fill")
-            }
+            .tabItem { Label("Inicio", systemImage: "house.fill") }
 
-            NavigationStack {
-                BalanceView()
-            }
-            .tabItem {
-                Label("Balance", systemImage: "chart.bar.xaxis")
-            }
+            NavigationStack { BalanceView() }
+                .tabItem { Label("Balance", systemImage: "chart.bar.xaxis") }
 
             WalletsView()
-            .tabItem {
-                Label("Carteras", systemImage: "wallet.pass")
-            }
+                .tabItem { Label("Carteras", systemImage: "wallet.pass") }
 
-            NavigationStack {
-                ProfileView()
-            }
-            .tabItem {
-                Label("Perfil", systemImage: "person.crop.circle")
-            }
+            NavigationStack { ProfileView() }
+                .tabItem { Label("Perfil", systemImage: "person.crop.circle") }
         }
     }
 
-    private func handleIncome() {
-        entrySheetKind = .income
-    }
-
-    private func handleExpense() {
-        entrySheetKind = .expense
-    }
-
-    private func handleScanReceipt() {
-        isReceiptScannerPresented = true
-    }
-
-    private func handleNewEntry(_ result: FinanceEntrySheetResult) {
-        // La transacción ya fue guardada en AddEntrySheet
-        // Aquí podríamos agregar lógica adicional si es necesario
-    }
+    private func handleIncome()      { entrySheetKind = .income }
+    private func handleExpense()     { entrySheetKind = .expense }
+    private func handleScanReceipt() { isReceiptScannerPresented = true }
+    private func handleNewEntry(_ result: FinanceEntrySheetResult) {}
 
     private var accentColor: Color {
         Color(hex: profileManager.profile.accentColorHex ?? "FF5C00")

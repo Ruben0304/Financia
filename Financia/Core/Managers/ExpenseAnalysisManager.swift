@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftData
 
 class ExpenseAnalysisManager: ObservableObject {
     static let shared = ExpenseAnalysisManager()
@@ -8,8 +9,8 @@ class ExpenseAnalysisManager: ObservableObject {
     @Published var isAnalyzing: Bool = false
     @Published var showNotification: Bool = false
 
-    private let persistence = PersistenceManager.shared
-    private let filename = "expense_analysis.json"
+    private let container = PersistenceManager.shared.container
+    private let cacheKey = "last_expense_analysis"
     private let chatService = ChatService()
 
     private init() {
@@ -19,9 +20,13 @@ class ExpenseAnalysisManager: ObservableObject {
     // MARK: - Persistence
 
     private func loadAnalysis() {
-        guard persistence.fileExists(filename) else { return }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ExpenseAnalysisEntity>(
+            predicate: #Predicate { $0.key == "last_expense_analysis" }
+        )
+
         do {
-            lastAnalysis = try persistence.load(from: filename, as: String.self)
+            lastAnalysis = try context.fetch(descriptor).first?.analysis
         } catch {
             print("Error loading expense analysis: \(error)")
         }
@@ -29,8 +34,19 @@ class ExpenseAnalysisManager: ObservableObject {
 
     private func saveAnalysis() {
         guard let analysis = lastAnalysis else { return }
+
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<ExpenseAnalysisEntity>(
+            predicate: #Predicate { $0.key == "last_expense_analysis" }
+        )
+
         do {
-            try persistence.save(analysis, to: filename)
+            if let entity = try context.fetch(descriptor).first {
+                entity.analysis = analysis
+            } else {
+                context.insert(ExpenseAnalysisEntity(key: cacheKey, analysis: analysis))
+            }
+            try context.save()
         } catch {
             print("Error saving expense analysis: \(error)")
         }

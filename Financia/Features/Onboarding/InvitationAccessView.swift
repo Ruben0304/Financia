@@ -1,105 +1,107 @@
 import SwiftUI
 
 struct InvitationAccessView: View {
-    @AppStorage("invitationValidated") private var invitationValidated = false
-    @AppStorage("invitationName") private var invitationName = ""
+    let appleUserID: String
+    let appleName: String
 
-    @State private var nombre: String = ""
-    @State private var codigo: String = ""
-    @State private var isLoading = false
-    @State private var message: String?
-    @State private var messageColor: Color = .secondary
+    @EnvironmentObject private var authManager: AuthManager
+    @State private var nombre: String
+    @State private var codigo = ""
 
-    private let service = InvitationService()
+    init(appleUserID: String, appleName: String) {
+        self.appleUserID = appleUserID
+        self.appleName = appleName
+        _nombre = State(initialValue: appleName)
+    }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
+        ZStack {
+            AuroraBackground()
+            VStack(alignment: .leading, spacing: 32) {
+                Spacer()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Código de invitación")
+                        .font(.system(size: 36, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AuroraColors.primaryText)
+
+                    Text("Necesitas un código para registrarte por primera vez.")
+                        .font(.subheadline)
+                        .foregroundStyle(AuroraColors.secondaryText)
+                        .lineSpacing(3)
+                }
+
+                VStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Acceso")
-                            .font(.title.bold())
-                        Text("Ingresa tu nombre y el código de invitación para continuar.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        Text("Nombre")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(AuroraColors.secondaryText)
+                        TextField("Tu nombre", text: $nombre)
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled(true)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(Color.white.opacity(0.55))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    .padding(.vertical, 6)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Código")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(AuroraColors.secondaryText)
+                        TextField("XXXX-XXXX", text: $codigo)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled(true)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(Color.white.opacity(0.55))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
                 }
 
-                Section("Datos") {
-                    TextField("Nombre", text: $nombre)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled(true)
-
-                    TextField("Código de invitación", text: $codigo)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled(true)
-                }
-
-                Section {
-                    Button(action: validate) {
-                        HStack {
-                            Spacer()
-                            if isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                            }
-                            Text(isLoading ? "Validando..." : "Continuar")
+                Button(action: submit) {
+                    HStack {
+                        Spacer()
+                        if authManager.isLoading {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("Registrarme")
                                 .font(.subheadline.weight(.semibold))
-                            Spacer()
                         }
+                        Spacer()
                     }
-                    .disabled(isLoading)
-                } footer: {
-                    if let message {
-                        Text(message)
-                            .foregroundColor(messageColor)
-                    }
+                    .frame(height: 52)
+                    .background(Color.black)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
+                .disabled(authManager.isLoading || nombre.trimmingCharacters(in: .whitespaces).isEmpty || codigo.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                if let error = authManager.error {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red.opacity(0.85))
+                        .transition(.opacity)
+                }
+
+                Spacer()
             }
-            .navigationTitle("Acceso")
-            .navigationBarTitleDisplayMode(.inline)
-            .scrollDismissesKeyboard(.interactively)
+            .padding(.horizontal, 32)
+            .animation(.easeInOut(duration: 0.25), value: authManager.error)
             .keyboardDoneToolbar()
         }
+        .ignoresSafeArea()
     }
 
-    private func validate() {
+    private func submit() {
         let trimmedName = nombre.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCode = codigo.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-
-        guard !trimmedName.isEmpty, !trimmedCode.isEmpty else {
-            message = "Completa tu nombre y el código de invitación."
-            messageColor = .red
-            return
-        }
-
-        isLoading = true
-        message = nil
-
         Task {
-            do {
-                let response = try await service.validate(code: trimmedCode, nombre: trimmedName)
-                message = response.mensaje
-                messageColor = response.valido ? Color(red: 0.20, green: 0.60, blue: 0.46) : .red
-
-                if response.valido {
-                    invitationName = trimmedName
-                    try? await Task.sleep(nanoseconds: 450_000_000)
-                    invitationValidated = true
-                }
-            } catch let error as InvitationAPIError {
-                message = error.localizedDescription
-                messageColor = .red
-            } catch {
-                message = "No se pudo validar el código."
-                messageColor = .red
-            }
-            isLoading = false
+            await authManager.register(
+                appleUserID: appleUserID,
+                name: trimmedName,
+                invitationCode: trimmedCode
+            )
         }
     }
-}
-
-#Preview {
-    InvitationAccessView()
 }

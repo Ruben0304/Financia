@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftData
 
 // Manager para operaciones CRUD de categorías
 class CategoryManager: ObservableObject {
@@ -9,9 +10,7 @@ class CategoryManager: ObservableObject {
     @Published var incomeCategories: [TransactionCategory] = []
     @Published var expenseCategories: [TransactionCategory] = []
 
-    private let persistence = PersistenceManager.shared
-    private let incomeCategoriesFilename = "income_categories.json"
-    private let expenseCategoriesFilename = "expense_categories.json"
+    private let container = PersistenceManager.shared.container
 
     private init() {
         loadCategories()
@@ -20,48 +19,53 @@ class CategoryManager: ObservableObject {
     // MARK: - Load/Save
 
     func loadCategories() {
-        // Cargar categorías de ingresos
-        if persistence.fileExists(incomeCategoriesFilename) {
-            do {
-                incomeCategories = try persistence.load(from: incomeCategoriesFilename, as: [TransactionCategory].self)
-            } catch {
-                print("Error loading income categories: \(error)")
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<CategoryEntity>()
+
+        do {
+            let entities = try context.fetch(descriptor)
+            incomeCategories = entities.filter(\ .isIncome).map(Self.makeCategory(from:))
+            expenseCategories = entities.filter { !$0.isIncome }.map(Self.makeCategory(from:))
+
+            if incomeCategories.isEmpty {
                 incomeCategories = CategoriesData.incomeCategories
                 saveIncomeCategories()
             }
-        } else {
-            incomeCategories = CategoriesData.incomeCategories
-            saveIncomeCategories()
-        }
 
-        // Cargar categorías de gastos
-        if persistence.fileExists(expenseCategoriesFilename) {
-            do {
-                expenseCategories = try persistence.load(from: expenseCategoriesFilename, as: [TransactionCategory].self)
-            } catch {
-                print("Error loading expense categories: \(error)")
+            if expenseCategories.isEmpty {
                 expenseCategories = CategoriesData.expenseCategories
                 saveExpenseCategories()
             }
-        } else {
+        } catch {
+            print("Error loading categories: \(error)")
+            incomeCategories = CategoriesData.incomeCategories
             expenseCategories = CategoriesData.expenseCategories
+            saveIncomeCategories()
             saveExpenseCategories()
         }
     }
 
     private func saveIncomeCategories() {
-        do {
-            try persistence.save(incomeCategories, to: incomeCategoriesFilename)
-        } catch {
-            print("Error saving income categories: \(error)")
-        }
+        save(categories: incomeCategories, isIncome: true)
     }
 
     private func saveExpenseCategories() {
+        save(categories: expenseCategories, isIncome: false)
+    }
+
+    private func save(categories: [TransactionCategory], isIncome: Bool) {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<CategoryEntity>(
+            predicate: #Predicate { $0.isIncome == isIncome }
+        )
+
         do {
-            try persistence.save(expenseCategories, to: expenseCategoriesFilename)
+            let existing = try context.fetch(descriptor)
+            existing.forEach { context.delete($0) }
+            categories.map { Self.makeEntity(from: $0, isIncome: isIncome) }.forEach { context.insert($0) }
+            try context.save()
         } catch {
-            print("Error saving expense categories: \(error)")
+            print("Error saving categories: \(error)")
         }
     }
 
@@ -131,5 +135,35 @@ class CategoryManager: ObservableObject {
 
     func subcategory(withId id: UUID, in category: TransactionCategory) -> Subcategory? {
         return category.subcategories.first { $0.id == id }
+    }
+
+    private static func makeCategory(from entity: CategoryEntity) -> TransactionCategory {
+        TransactionCategory(
+            id: entity.id,
+            name: entity.name,
+            subcategories: SwiftDataBridge.decode([Subcategory].self, from: entity.subcategoriesData) ?? [],
+            icon: entity.icon,
+            color: SwiftDataBridge.color(
+                red: entity.colorRed,
+                green: entity.colorGreen,
+                blue: entity.colorBlue,
+                opacity: entity.colorOpacity
+            )
+        )
+    }
+
+    private static func makeEntity(from category: TransactionCategory, isIncome: Bool) -> CategoryEntity {
+        let color = SwiftDataBridge.components(from: category.color)
+        return CategoryEntity(
+            id: category.id,
+            name: category.name,
+            isIncome: isIncome,
+            icon: category.icon,
+            colorRed: color.red,
+            colorGreen: color.green,
+            colorBlue: color.blue,
+            colorOpacity: color.opacity,
+            subcategoriesData: SwiftDataBridge.encode(category.subcategories)
+        )
     }
 }

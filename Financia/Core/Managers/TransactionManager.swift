@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftData
 
 // Manager para operaciones CRUD de transacciones
 class TransactionManager: ObservableObject {
@@ -8,8 +9,7 @@ class TransactionManager: ObservableObject {
 
     @Published var transactions: [Transaction] = []
 
-    private let persistence = PersistenceManager.shared
-    private let filename = "transactions.json"
+    private let container = PersistenceManager.shared.container
 
     private init() {
         loadTransactions()
@@ -18,13 +18,11 @@ class TransactionManager: ObservableObject {
     // MARK: - CRUD Operations
 
     func loadTransactions() {
-        guard persistence.fileExists(filename) else {
-            transactions = []
-            return
-        }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<TransactionEntity>()
 
         do {
-            transactions = try persistence.load(from: filename, as: [Transaction].self)
+            transactions = try context.fetch(descriptor).map(Self.makeTransaction(from:))
         } catch {
             print("Error loading transactions: \(error)")
             transactions = []
@@ -32,8 +30,14 @@ class TransactionManager: ObservableObject {
     }
 
     private func saveTransactions() {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<TransactionEntity>()
+
         do {
-            try persistence.save(transactions, to: filename)
+            let existing = try context.fetch(descriptor)
+            existing.forEach { context.delete($0) }
+            transactions.map(Self.makeEntity).forEach { context.insert($0) }
+            try context.save()
         } catch {
             print("Error saving transactions: \(error)")
         }
@@ -108,5 +112,47 @@ class TransactionManager: ObservableObject {
     func clearAllTransactions() {
         transactions = []
         saveTransactions()
+    }
+
+    private static func makeTransaction(from entity: TransactionEntity) -> Transaction {
+        Transaction(
+            id: entity.id,
+            type: TransactionType(rawValue: entity.typeRaw) ?? .expense,
+            amount: entity.amount,
+            date: entity.date,
+            categoryId: entity.categoryId,
+            categoryName: entity.categoryName,
+            subcategoryId: entity.subcategoryId,
+            subcategoryName: entity.subcategoryName,
+            description: entity.detailText,
+            walletId: entity.walletId,
+            createdAt: entity.createdAt,
+            lugar: SwiftDataBridge.decode(Lugar.self, from: entity.lugarData),
+            subitems: SwiftDataBridge.decode([SubItem].self, from: entity.subitemsData),
+            assetId: entity.assetId,
+            jobId: entity.jobId,
+            liabilityId: entity.liabilityId
+        )
+    }
+
+    private static func makeEntity(from transaction: Transaction) -> TransactionEntity {
+        TransactionEntity(
+            id: transaction.id,
+            typeRaw: transaction.type.rawValue,
+            amount: transaction.amount,
+            date: transaction.date,
+            categoryId: transaction.categoryId,
+            categoryName: transaction.categoryName,
+            subcategoryId: transaction.subcategoryId,
+            subcategoryName: transaction.subcategoryName,
+            detailText: transaction.description,
+            walletId: transaction.walletId,
+            createdAt: transaction.createdAt,
+            lugarData: transaction.lugar.map(SwiftDataBridge.encode),
+            subitemsData: transaction.subitems.map(SwiftDataBridge.encode),
+            assetId: transaction.assetId,
+            jobId: transaction.jobId,
+            liabilityId: transaction.liabilityId
+        )
     }
 }

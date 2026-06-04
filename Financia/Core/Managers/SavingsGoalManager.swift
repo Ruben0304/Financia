@@ -7,13 +7,14 @@
 
 import Foundation
 import Combine
+import SwiftData
 
 class SavingsGoalManager: ObservableObject {
     static let shared = SavingsGoalManager()
 
     @Published var savingsGoals: [SavingsGoal] = []
-    private let persistence = PersistenceManager.shared
-    private let filename = "savings_goals.json"
+
+    private let container = PersistenceManager.shared.container
 
     private init() {
         loadSavingsGoals()
@@ -22,13 +23,11 @@ class SavingsGoalManager: ObservableObject {
     // MARK: - Persistence
 
     func loadSavingsGoals() {
-        guard persistence.fileExists(filename) else {
-            savingsGoals = []
-            return
-        }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<SavingsGoalEntity>()
 
         do {
-            savingsGoals = try persistence.load(from: filename, as: [SavingsGoal].self)
+            savingsGoals = try context.fetch(descriptor).map(Self.makeGoal(from:))
         } catch {
             print("Error loading savings goals: \(error)")
             savingsGoals = []
@@ -36,8 +35,14 @@ class SavingsGoalManager: ObservableObject {
     }
 
     private func save() {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<SavingsGoalEntity>()
+
         do {
-            try persistence.save(savingsGoals, to: filename)
+            let existing = try context.fetch(descriptor)
+            existing.forEach { context.delete($0) }
+            savingsGoals.map(Self.makeEntity).forEach { context.insert($0) }
+            try context.save()
         } catch {
             print("Error saving savings goals: \(error)")
         }
@@ -102,5 +107,35 @@ class SavingsGoalManager: ObservableObject {
 
     func activeGoals() -> [SavingsGoal] {
         savingsGoals.filter { !$0.alcanzado }
+    }
+
+    private static func makeGoal(from entity: SavingsGoalEntity) -> SavingsGoal {
+        SavingsGoal(
+            id: entity.id,
+            nombre: entity.nombre,
+            descripcion: entity.descripcionText,
+            precioObjetivo: entity.precioObjetivo,
+            moneda: Currency(rawValue: entity.monedaRaw) ?? .cup,
+            imagenData: entity.imagenData,
+            productURL: entity.productURL,
+            ahorrado: entity.ahorrado,
+            createdAt: entity.createdAt,
+            contribuciones: SwiftDataBridge.decode([SavingsContribution].self, from: entity.contribucionesData) ?? []
+        )
+    }
+
+    private static func makeEntity(from goal: SavingsGoal) -> SavingsGoalEntity {
+        SavingsGoalEntity(
+            id: goal.id,
+            nombre: goal.nombre,
+            descripcionText: goal.descripcion,
+            precioObjetivo: goal.precioObjetivo,
+            monedaRaw: goal.moneda.rawValue,
+            imagenData: goal.imagenData,
+            productURL: goal.productURL,
+            ahorrado: goal.ahorrado,
+            createdAt: goal.createdAt,
+            contribucionesData: SwiftDataBridge.encode(goal.contribuciones)
+        )
     }
 }
