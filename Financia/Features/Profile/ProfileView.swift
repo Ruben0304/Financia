@@ -238,6 +238,14 @@ struct ProfileView: View {
             }
 
             Section {
+                Button {
+                    authManager.signOut()
+                } label: {
+                    Label("Cerrar sesión", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            }
+
+            Section {
                 if isDeletingAccount {
                     HStack {
                         ProgressView()
