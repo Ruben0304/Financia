@@ -19,7 +19,6 @@ struct FinanceDashboardView: View {
 
     @State private var selectedCurrency: Currency = .cup
     @State private var didSetInitialCurrency: Bool = false
-    @State private var showAssistant: Bool = false
     @AppStorage("financeDashboard.isBalanceHidden") private var isBalanceHidden: Bool = false
     @State private var isTransferring: Bool = false
     @State private var isShowingTimeline: Bool = false
@@ -162,18 +161,6 @@ struct FinanceDashboardView: View {
                 automatedDraftManager.deleteDraft(id: draft.id)
             }
         }
-        .fullScreenCover(isPresented: $showAssistant) {
-            NavigationStack {
-                ChatView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cerrar") {
-                                showAssistant = false
-                            }
-                        }
-                    }
-            }
-        }
     }
 
     // MARK: - Header
@@ -211,20 +198,10 @@ struct FinanceDashboardView: View {
     }
 
     private var headerTrailing: some View {
-        HStack(spacing: 16) {
-            Button {
-                showAssistant = true
-            } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 20))
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-            }
-
-            NavigationLink(destination: SavingsGoalsView()) {
-                Image(systemName: "circle.circle")
-                    .font(.system(size: 20))
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-            }
+        NavigationLink(destination: SavingsGoalsView()) {
+            Image(systemName: "circle.circle")
+                .font(.system(size: 20))
+                .foregroundColor(DarkFinanceColors.secondaryText)
         }
     }
 

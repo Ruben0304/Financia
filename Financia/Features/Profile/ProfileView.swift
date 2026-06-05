@@ -22,6 +22,12 @@ struct ProfileView: View {
     @State private var mcpTokenError: String? = nil
     @State private var tokenCopied = false
 
+    // Account deletion
+    @EnvironmentObject private var authManager: AuthManager
+    @State private var showDeleteConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var deleteAccountError: String? = nil
+
     private let mcpServerURL = "https://financia-mcp.up.railway.app/mcp"
 
     var body: some View {
@@ -230,6 +236,42 @@ struct ProfileView: View {
             Section("Color principal") {
                 ColorPicker("Acento", selection: $accentColor, supportsOpacity: false)
             }
+
+            Section {
+                if isDeletingAccount {
+                    HStack {
+                        ProgressView()
+                        Text("Eliminando cuenta…")
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Eliminar cuenta", systemImage: "trash")
+                    }
+                }
+
+                if let error = deleteAccountError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            } footer: {
+                Text("Esta acción es irreversible. Se eliminarán todos tus datos, transacciones, carteras y configuración.")
+            }
+        }
+        .confirmationDialog(
+            "¿Eliminar cuenta?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Eliminar cuenta", role: .destructive) {
+                deleteAccount()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se borrarán permanentemente todos tus datos. Esta acción no se puede deshacer.")
         }
         .navigationTitle("Perfil")
         .navigationBarTitleDisplayMode(.inline)
@@ -346,6 +388,24 @@ struct ProfileView: View {
         let g = Int(green * 255)
         let b = Int(blue * 255)
         return String(format: "%02X%02X%02X", r, g, b)
+    }
+
+    private func deleteAccount() {
+        isDeletingAccount = true
+        deleteAccountError = nil
+        Task {
+            do {
+                _ = try await APIClient.shared.delete("/users/me")
+                await MainActor.run {
+                    authManager.signOut()
+                }
+            } catch {
+                await MainActor.run {
+                    deleteAccountError = "No se pudo eliminar la cuenta. Intenta de nuevo."
+                    isDeletingAccount = false
+                }
+            }
+        }
     }
 
     private func fetchMcpToken() {
