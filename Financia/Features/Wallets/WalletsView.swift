@@ -64,16 +64,16 @@ struct WalletsView: View {
                     }
                 }
             }
+            .navigationDestination(isPresented: $isShowingBudget) {
+                BudgetView()
+                    .environmentObject(budgetManager)
+                    .environmentObject(walletManager)
+            }
         }
         .sheet(isPresented: $isAddingWallet) {
             AddWalletSheet { newWallet in
                 walletManager.addWallet(newWallet)
             }
-        }
-        .navigationDestination(isPresented: $isShowingBudget) {
-            BudgetView()
-                .environmentObject(budgetManager)
-                .environmentObject(walletManager)
         }
         .sheet(isPresented: $isTransferring) {
             TransferView()
