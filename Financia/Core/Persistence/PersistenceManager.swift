@@ -508,6 +508,21 @@ final class SubscriptionEntity {
 }
 
 @Model
+final class BudgetAllocationPresetEntity {
+    var id: UUID = UUID()
+    var nombre: String = ""
+    var porcentajesData: Data = Data()
+    var createdAt: Date = Date()
+
+    init(id: UUID, nombre: String, porcentajesData: Data, createdAt: Date) {
+        self.id = id
+        self.nombre = nombre
+        self.porcentajesData = porcentajesData
+        self.createdAt = createdAt
+    }
+}
+
+@Model
 final class BudgetCategoryEntity {
     var id: UUID = UUID()
     var nombre: String = ""
@@ -625,7 +640,8 @@ final class PersistenceManager {
             ExpenseAnalysisEntity.self,
             SubscriptionEntity.self,
             SubscriptionTemplateEntity.self,
-            BudgetCategoryEntity.self
+            BudgetCategoryEntity.self,
+            BudgetAllocationPresetEntity.self
         ])
 
         let localConfiguration = ModelConfiguration(

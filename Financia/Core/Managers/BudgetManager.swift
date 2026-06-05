@@ -7,6 +7,7 @@ class BudgetManager: ObservableObject {
     static let shared = BudgetManager()
 
     @Published var categories: [BudgetCategory] = []
+    @Published var presets: [BudgetAllocationPreset] = []
     @Published var lastError: String?
 
     private let container = PersistenceManager.shared.container
@@ -15,6 +16,7 @@ class BudgetManager: ObservableObject {
 
     private init() {
         loadFromCache()
+        loadPresetsFromCache()
         Task { await refreshFromBackend() }
     }
 
@@ -79,13 +81,19 @@ class BudgetManager: ObservableObject {
         }
     }
 
-    // MARK: - Computed helpers
+    // MARK: - Presets (local only)
 
-    func totalAllocated(for currency: Currency) -> Double {
-        categories.reduce(0) { $0 + $1.asignaciones.amount(for: currency) }
+    func addPreset(_ preset: BudgetAllocationPreset) {
+        presets.append(preset)
+        insertPresetCache(preset)
     }
 
-    // MARK: - Cache
+    func deletePreset(id: UUID) {
+        presets.removeAll { $0.id == id }
+        deletePresetCache(id: id)
+    }
+
+    // MARK: - Category cache
 
     private func loadFromCache() {
         let context = ModelContext(container)
@@ -132,6 +140,42 @@ class BudgetManager: ObservableObject {
         }
     }
 
+    // MARK: - Preset cache
+
+    private func loadPresetsFromCache() {
+        let context = ModelContext(container)
+        do {
+            presets = try context.fetch(FetchDescriptor<BudgetAllocationPresetEntity>())
+                .compactMap(Self.makePreset(from:))
+        } catch {
+            print("BudgetManager preset cache read failed: \(error)")
+        }
+    }
+
+    private func insertPresetCache(_ preset: BudgetAllocationPreset) {
+        let context = ModelContext(container)
+        do {
+            let id = preset.id
+            let pred = #Predicate<BudgetAllocationPresetEntity> { $0.id == id }
+            try context.fetch(FetchDescriptor<BudgetAllocationPresetEntity>(predicate: pred)).forEach { context.delete($0) }
+            context.insert(Self.makePresetEntity(from: preset))
+            try context.save()
+        } catch {
+            print("BudgetManager preset insert failed: \(error)")
+        }
+    }
+
+    private func deletePresetCache(id: UUID) {
+        let context = ModelContext(container)
+        do {
+            let pred = #Predicate<BudgetAllocationPresetEntity> { $0.id == id }
+            try context.fetch(FetchDescriptor<BudgetAllocationPresetEntity>(predicate: pred)).forEach { context.delete($0) }
+            try context.save()
+        } catch {
+            print("BudgetManager preset delete failed: \(error)")
+        }
+    }
+
     // MARK: - Conversions
 
     private static func makeCategory(from entity: BudgetCategoryEntity) -> BudgetCategory {
@@ -157,6 +201,25 @@ class BudgetManager: ObservableObject {
             asignacionEUR: category.asignaciones.eur,
             asignacionCUP: category.asignaciones.cup,
             createdAt: category.createdAt
+        )
+    }
+
+    private static func makePreset(from entity: BudgetAllocationPresetEntity) -> BudgetAllocationPreset? {
+        guard let porcentajes = SwiftDataBridge.decode([String: Double].self, from: entity.porcentajesData) else { return nil }
+        return BudgetAllocationPreset(
+            id: entity.id,
+            nombre: entity.nombre,
+            porcentajes: porcentajes,
+            createdAt: entity.createdAt
+        )
+    }
+
+    private static func makePresetEntity(from preset: BudgetAllocationPreset) -> BudgetAllocationPresetEntity {
+        BudgetAllocationPresetEntity(
+            id: preset.id,
+            nombre: preset.nombre,
+            porcentajesData: SwiftDataBridge.encode(preset.porcentajes),
+            createdAt: preset.createdAt
         )
     }
 }

@@ -1,5 +1,19 @@
 import Foundation
 
+struct BudgetAllocationPreset: Identifiable, Codable {
+    var id: UUID
+    var nombre: String
+    var porcentajes: [String: Double]   // categoryId.uuidString -> % (0–100)
+    var createdAt: Date
+
+    init(id: UUID = UUID(), nombre: String, porcentajes: [String: Double] = [:], createdAt: Date = Date()) {
+        self.id = id
+        self.nombre = nombre
+        self.porcentajes = porcentajes
+        self.createdAt = createdAt
+    }
+}
+
 struct BudgetAsignaciones: Codable, Equatable {
     var usd: Double?
     var eur: Double?
