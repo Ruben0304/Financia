@@ -3,12 +3,14 @@ import SwiftUI
 struct WalletsView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var exchangeRateManager: ExchangeRateManager
+    @EnvironmentObject var budgetManager: BudgetManager
 
     @State private var isAddingWallet = false
     @State private var isTransferring = false
     @State private var walletToAdjust: Wallet?
     @State private var walletForDamagedBills: Wallet?
     @State private var isShowingBreathing = false
+    @State private var isShowingBudget = false
 
     var body: some View {
         NavigationStack {
@@ -53,6 +55,10 @@ struct WalletsView: View {
                         isShowingBreathing = true
                     }
 
+                    toolbarActionButton(systemName: "chart.pie") {
+                        isShowingBudget = true
+                    }
+
                     toolbarActionButton(systemName: "plus") {
                         isAddingWallet = true
                     }
@@ -63,6 +69,11 @@ struct WalletsView: View {
             AddWalletSheet { newWallet in
                 walletManager.addWallet(newWallet)
             }
+        }
+        .navigationDestination(isPresented: $isShowingBudget) {
+            BudgetView()
+                .environmentObject(budgetManager)
+                .environmentObject(walletManager)
         }
         .sheet(isPresented: $isTransferring) {
             TransferView()

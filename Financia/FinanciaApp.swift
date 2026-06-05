@@ -8,6 +8,7 @@ struct FinanciaApp: App {
         _ = WalletManager.shared
         _ = CategoryManager.shared
         _ = TransactionManager.shared
+        _ = BudgetManager.shared
         _ = AutomatedDraftManager.shared
         _ = LugarManager.shared
         _ = DebtManager.shared
@@ -26,6 +27,7 @@ struct FinanciaApp: App {
             ContentView()
                 .environmentObject(AuthManager.shared)
                 .environmentObject(WalletManager.shared)
+                .environmentObject(BudgetManager.shared)
                 .environmentObject(CategoryManager.shared)
                 .environmentObject(TransactionManager.shared)
                 .environmentObject(AutomatedDraftManager.shared)

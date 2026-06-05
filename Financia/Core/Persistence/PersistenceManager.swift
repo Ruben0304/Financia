@@ -508,6 +508,35 @@ final class SubscriptionEntity {
 }
 
 @Model
+final class BudgetCategoryEntity {
+    var id: UUID = UUID()
+    var nombre: String = ""
+    var descripcionText: String?
+    var asignacionUSD: Double?
+    var asignacionEUR: Double?
+    var asignacionCUP: Double?
+    var createdAt: Date = Date()
+
+    init(
+        id: UUID,
+        nombre: String,
+        descripcionText: String?,
+        asignacionUSD: Double?,
+        asignacionEUR: Double?,
+        asignacionCUP: Double?,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.nombre = nombre
+        self.descripcionText = descripcionText
+        self.asignacionUSD = asignacionUSD
+        self.asignacionEUR = asignacionEUR
+        self.asignacionCUP = asignacionCUP
+        self.createdAt = createdAt
+    }
+}
+
+@Model
 final class SubscriptionTemplateEntity {
     var id: UUID = UUID()
     var platformName: String = ""
@@ -595,7 +624,8 @@ final class PersistenceManager {
             ManualUsdRateEntity.self,
             ExpenseAnalysisEntity.self,
             SubscriptionEntity.self,
-            SubscriptionTemplateEntity.self
+            SubscriptionTemplateEntity.self,
+            BudgetCategoryEntity.self
         ])
 
         let localConfiguration = ModelConfiguration(
