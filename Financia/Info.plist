@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
+		<key>NSCameraUsageDescription</key>
+		<string>FinancIA usa la cámara para escanear recibos y extraer automáticamente el monto, lugar y artículos de tus gastos.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>FinancIA accede a tu galería para seleccionar fotos de recibos, tu avatar de perfil e imágenes de tus metas de ahorro.</string>
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
