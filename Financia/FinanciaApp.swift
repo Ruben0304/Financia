@@ -3,7 +3,7 @@ import SwiftData
 
 @main
 struct FinanciaApp: App {
-    // Trigger Xcode Cloud build
+    // Trigger Xcode Cloud build (redesign-home)
     init() {
         _ = WalletManager.shared
         _ = CategoryManager.shared
