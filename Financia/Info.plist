@@ -8,6 +8,8 @@
 		<string>FinancIA usa la cámara para escanear recibos y extraer automáticamente el monto, lugar y artículos de tus gastos.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>FinancIA accede a tu galería para seleccionar fotos de recibos, tu avatar de perfil e imágenes de tus metas de ahorro.</string>
+		<key>NSFaceIDUsageDescription</key>
+		<string>FinancIA usa Face ID para bloquear la app y proteger el acceso a tu información financiera.</string>
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
@@ -21,10 +23,6 @@
 			</array>
 			</dict>
 			<dict/>
-		</array>
-		<key>UIBackgroundModes</key>
-		<array>
-			<string>remote-notification</string>
 		</array>
 		<key>NSAppTransportSecurity</key>
 		<dict>

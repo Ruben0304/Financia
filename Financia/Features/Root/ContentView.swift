@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject var profileManager: ProfileManager
     @EnvironmentObject var wealthManager: WealthManager
     @EnvironmentObject var expenseAnalysisManager: ExpenseAnalysisManager
+    @EnvironmentObject var appLock: AppLockManager
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedRange: DateRange = .month
@@ -43,14 +44,28 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(100)
             }
+
+            if lockOverlayVisible {
+                AppLockView(showsUnlockButton: appLock.isLocked && scenePhase == .active)
+                    .transition(.opacity)
+                    .zIndex(200)
+            }
         }
         .ignoresSafeArea()
         .tint(accentColor)
         .animation(.easeInOut(duration: 0.55), value: authManager.state)
         .animation(.easeInOut(duration: 0.4), value: expenseAnalysisManager.showNotification)
+        .animation(.easeInOut(duration: 0.25), value: lockOverlayVisible)
+        .task { await maybeAuthenticate() }
         .onChange(of: scenePhase) {
-            if scenePhase == .active {
+            switch scenePhase {
+            case .active:
                 automatedDraftManager.loadDrafts()
+                Task { await maybeAuthenticate() }
+            case .background:
+                appLock.lockIfNeeded()
+            default:
+                break
             }
         }
         .sheet(item: $entrySheetKind) { kind in
@@ -106,6 +121,19 @@ struct ContentView: View {
     private func handleExpense()     { entrySheetKind = .expense }
     private func handleScanReceipt() { isReceiptScannerPresented = true }
     private func handleNewEntry(_ result: FinanceEntrySheetResult) {}
+
+    /// The lock cover is shown while locked, and also as a privacy shield while
+    /// the (authenticated) app is not active, so the app-switcher snapshot can't
+    /// leak balances. Only meaningful once the user is signed in.
+    private var lockOverlayVisible: Bool {
+        guard appLock.isEnabled, case .authenticated = authManager.state else { return false }
+        return appLock.isLocked || scenePhase != .active
+    }
+
+    private func maybeAuthenticate() async {
+        guard case .authenticated = authManager.state else { return }
+        await appLock.authenticate()
+    }
 
     private var accentColor: Color {
         Color(hex: profileManager.profile.accentColorHex ?? "FF5C00")

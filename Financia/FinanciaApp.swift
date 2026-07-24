@@ -20,6 +20,7 @@ struct FinanciaApp: App {
         _ = CloudKitStatusManager.shared
         _ = PrestamoManager.shared
         _ = ExchangeRateManager.shared
+        _ = AppLockManager.shared
     }
 
     var body: some Scene {
@@ -41,6 +42,7 @@ struct FinanciaApp: App {
                 .environmentObject(SubscriptionManager.shared)
                 .environmentObject(CloudKitStatusManager.shared)
                 .environmentObject(PrestamoManager.shared)
+                .environmentObject(AppLockManager.shared)
                 .modelContainer(PersistenceManager.shared.container)
         }
     }

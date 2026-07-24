@@ -7,6 +7,7 @@ struct WalletsView: View {
 
     @State private var isAddingWallet = false
     @State private var isTransferring = false
+    @State private var transferStartsInExchange = false
     @State private var walletToAdjust: Wallet?
     @State private var walletForDamagedBills: Wallet?
     @State private var isShowingBreathing = false
@@ -47,8 +48,23 @@ struct WalletsView: View {
                 }
 
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    toolbarActionButton(systemName: "arrow.left.arrow.right") {
-                        isTransferring = true
+                    Menu {
+                        Button {
+                            transferStartsInExchange = false
+                            isTransferring = true
+                        } label: {
+                            Label("Transferir", systemImage: "arrow.left.arrow.right")
+                        }
+                        Button {
+                            transferStartsInExchange = true
+                            isTransferring = true
+                        } label: {
+                            Label("Cambiar divisa", systemImage: "dollarsign.arrow.circlepath")
+                        }
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(DarkFinanceColors.primaryText)
                     }
 
                     toolbarActionButton(systemName: "wind") {
@@ -76,7 +92,7 @@ struct WalletsView: View {
             }
         }
         .sheet(isPresented: $isTransferring) {
-            TransferView()
+            TransferView(startInExchangeMode: transferStartsInExchange)
         }
         .sheet(isPresented: $isShowingBreathing) {
             FinancialBreathingSheet()

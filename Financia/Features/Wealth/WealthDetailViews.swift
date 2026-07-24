@@ -1,4 +1,144 @@
 import SwiftUI
+import PhotosUI
+
+struct ValuableObjectDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var wealthManager: WealthManager
+
+    @State private var object: ValuableObject
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var selectedImage: UIImage?
+
+    init(object: ValuableObject) {
+        _object = State(initialValue: object)
+        _selectedImage = State(initialValue: object.imageData.flatMap { UIImage(data: $0) })
+    }
+
+    var body: some View {
+        ZStack {
+            DarkFinanceBackground()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    photoCard
+                    formCard
+                    saleCard
+                    deleteButton
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+        }
+        .navigationTitle("Objeto de valor")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Guardar") {
+                    object.imageData = selectedImage?.jpegData(compressionQuality: 0.7)
+                    object.updatedAt = Date()
+                    wealthManager.updateValuableObject(object)
+                }
+            }
+        }
+        .onChange(of: selectedItem) { newItem in
+            Task {
+                if let data = try? await newItem?.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    selectedImage = image
+                }
+            }
+        }
+    }
+
+    private var photoCard: some View {
+        HStack(spacing: 16) {
+            if let image = selectedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            } else {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.systemGray5))
+                    .frame(width: 72, height: 72)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 24))
+                            .foregroundColor(.secondary)
+                    )
+            }
+
+            PhotosPicker(selection: $selectedItem, matching: .images) {
+                Text(selectedImage == nil ? "Seleccionar foto" : "Cambiar foto")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DarkFinanceColors.primaryText)
+            }
+            .buttonStyle(.bordered)
+
+            Spacer()
+        }
+        .darkFinanceCard(cornerRadius: 16, padding: 16)
+    }
+
+    private var formCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            wealthField(label: "Nombre") {
+                TextField("Nombre", text: $object.name)
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                    .darkInputStyle()
+            }
+
+            wealthField(label: "Descripción") {
+                TextField("Opcional", text: $object.notes, axis: .vertical)
+                    .foregroundColor(DarkFinanceColors.primaryText)
+                    .darkInputStyle()
+            }
+
+            HStack(spacing: 10) {
+                wealthField(label: "Valor estimado") {
+                    TextField("0.00", value: $object.estimatedValue, format: .number.precision(.fractionLength(2)))
+                        .keyboardType(.decimalPad)
+                        .foregroundColor(DarkFinanceColors.primaryText)
+                        .darkInputStyle()
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Moneda")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                    Picker("Moneda", selection: $object.currency) {
+                        ForEach(Currency.allCases) { currency in
+                            Text(currency.rawValue).tag(currency)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+        }
+        .darkFinanceCard(cornerRadius: 16, padding: 16)
+    }
+
+    private var saleCard: some View {
+        Toggle(isOn: $object.forSale) {
+            Text("En venta")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(DarkFinanceColors.primaryText)
+        }
+        .darkFinanceCard(cornerRadius: 16, padding: 16)
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            wealthManager.deleteValuableObject(object)
+            dismiss()
+        } label: {
+            Text("Eliminar objeto")
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+        }
+    }
+}
 
 struct AssetDetailView: View {
     @Environment(\.dismiss) private var dismiss

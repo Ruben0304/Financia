@@ -257,7 +257,8 @@ class TransactionManager: ObservableObject {
             description: e.detailText, walletId: e.walletId, createdAt: e.createdAt,
             lugar: SwiftDataBridge.decode(Lugar.self, from: e.lugarData),
             subitems: SwiftDataBridge.decode([SubItem].self, from: e.subitemsData),
-            assetId: e.assetId, jobId: e.jobId, liabilityId: e.liabilityId
+            assetId: e.assetId, jobId: e.jobId, liabilityId: e.liabilityId,
+            cambio: SwiftDataBridge.decode(CambioDivisa.self, from: e.cambioData)
         )
     }
 
@@ -269,7 +270,8 @@ class TransactionManager: ObservableObject {
             detailText: t.description, walletId: t.walletId, createdAt: t.createdAt,
             lugarData: t.lugar.map(SwiftDataBridge.encode),
             subitemsData: t.subitems.map(SwiftDataBridge.encode),
-            assetId: t.assetId, jobId: t.jobId, liabilityId: t.liabilityId
+            assetId: t.assetId, jobId: t.jobId, liabilityId: t.liabilityId,
+            cambioData: t.cambio.map(SwiftDataBridge.encode)
         )
     }
 }

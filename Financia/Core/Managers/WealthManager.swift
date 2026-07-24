@@ -9,6 +9,7 @@ final class WealthManager: ObservableObject {
     @Published var assets: [Asset] = []
     @Published var jobs: [Job] = []
     @Published var liabilities: [Liability] = []
+    @Published var valuableObjects: [ValuableObject] = []
     @Published var lastError: String?
 
     private let container = PersistenceManager.shared.container
@@ -16,6 +17,7 @@ final class WealthManager: ObservableObject {
     private let assetsEndpoint = "/wealth/assets/"
     private let jobsEndpoint = "/wealth/jobs/"
     private let liabilitiesEndpoint = "/wealth/liabilities/"
+    private let valuableObjectsEndpoint = "/wealth/valuable-objects/"
 
     private init() {
         loadFromCache()
@@ -28,20 +30,23 @@ final class WealthManager: ObservableObject {
             assets = try context.fetch(FetchDescriptor<AssetEntity>()).map(Self.makeAsset(from:))
             jobs = try context.fetch(FetchDescriptor<JobEntity>()).map(Self.makeJob(from:))
             liabilities = try context.fetch(FetchDescriptor<LiabilityEntity>()).map(Self.makeLiability(from:))
+            valuableObjects = try context.fetch(FetchDescriptor<ValuableObjectEntity>()).map(Self.makeValuableObject(from:))
         } catch { print("WealthManager cache read failed: \(error)") }
     }
 
     func refreshFromBackend() async {
         // Sequential awaits (not `async let`) — see SubscriptionManager
-        // for the reason. Three round-trips on boot is fine.
+        // for the reason. Four round-trips on boot is fine.
         do {
             let assets: [Asset] = try await api.getList(assetsEndpoint)
             let jobs: [Job] = try await api.getList(jobsEndpoint)
             let liabilities: [Liability] = try await api.getList(liabilitiesEndpoint)
+            let valuableObjects: [ValuableObject] = try await api.getList(valuableObjectsEndpoint)
             self.assets = assets
             self.jobs = jobs
             self.liabilities = liabilities
-            replaceCache(assets: assets, jobs: jobs, liabilities: liabilities)
+            self.valuableObjects = valuableObjects
+            replaceCache(assets: assets, jobs: jobs, liabilities: liabilities, valuableObjects: valuableObjects)
         } catch APIError.networkUnavailable {
         } catch { lastError = error.localizedDescription }
     }
@@ -198,6 +203,56 @@ final class WealthManager: ObservableObject {
 
     func liability(withId id: UUID?) -> Liability? { id.flatMap { id in liabilities.first { $0.id == id } } }
 
+    // MARK: - Valuable objects
+
+    func addValuableObject(_ object: ValuableObject) {
+        valuableObjects.append(object)
+        insertValuableObjectCache(object)
+        Task { [weak self] in
+            guard let self else { return }
+            do { let _: Empty = try await self.api.post(self.valuableObjectsEndpoint, body: object) }
+            catch {
+                self.valuableObjects.removeAll { $0.id == object.id }
+                self.deleteValuableObjectCache(id: object.id)
+                self.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func updateValuableObject(_ object: ValuableObject) {
+        guard let i = valuableObjects.firstIndex(where: { $0.id == object.id }) else { return }
+        let previous = valuableObjects[i]
+        valuableObjects[i] = object
+        insertValuableObjectCache(object)
+        Task { [weak self] in
+            guard let self else { return }
+            do { let _: Empty = try await self.api.put("\(self.valuableObjectsEndpoint)\(object.id.uuidString)", body: object) }
+            catch {
+                if let j = self.valuableObjects.firstIndex(where: { $0.id == previous.id }) {
+                    self.valuableObjects[j] = previous
+                    self.insertValuableObjectCache(previous)
+                }
+                self.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func deleteValuableObject(_ object: ValuableObject) {
+        valuableObjects.removeAll { $0.id == object.id }
+        deleteValuableObjectCache(id: object.id)
+        Task { [weak self] in
+            guard let self else { return }
+            do { _ = try await self.api.delete("\(self.valuableObjectsEndpoint)\(object.id.uuidString)") }
+            catch {
+                self.valuableObjects.append(object)
+                self.insertValuableObjectCache(object)
+                self.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func valuableObject(withId id: UUID?) -> ValuableObject? { id.flatMap { id in valuableObjects.first { $0.id == id } } }
+
     // MARK: - Forecast queries (unchanged)
 
     func forecastedMonthlyIncome(in currency: Currency) -> Double {
@@ -280,15 +335,17 @@ final class WealthManager: ObservableObject {
 
     // MARK: - Cache helpers (per entity type)
 
-    private func replaceCache(assets: [Asset], jobs: [Job], liabilities: [Liability]) {
+    private func replaceCache(assets: [Asset], jobs: [Job], liabilities: [Liability], valuableObjects: [ValuableObject]) {
         let context = ModelContext(container)
         do {
             try context.fetch(FetchDescriptor<AssetEntity>()).forEach { context.delete($0) }
             try context.fetch(FetchDescriptor<JobEntity>()).forEach { context.delete($0) }
             try context.fetch(FetchDescriptor<LiabilityEntity>()).forEach { context.delete($0) }
+            try context.fetch(FetchDescriptor<ValuableObjectEntity>()).forEach { context.delete($0) }
             assets.map(Self.makeAssetEntity).forEach { context.insert($0) }
             jobs.map(Self.makeJobEntity).forEach { context.insert($0) }
             liabilities.map(Self.makeLiabilityEntity).forEach { context.insert($0) }
+            valuableObjects.map(Self.makeValuableObjectEntity).forEach { context.insert($0) }
             try context.save()
         } catch { print("WealthManager cache replace failed: \(error)") }
     }
@@ -341,6 +398,22 @@ final class WealthManager: ObservableObject {
         } catch {}
     }
 
+    private func insertValuableObjectCache(_ o: ValuableObject) {
+        let context = ModelContext(container); let id = o.id
+        do {
+            try context.fetch(FetchDescriptor<ValuableObjectEntity>(predicate: #Predicate { $0.id == id })).forEach { context.delete($0) }
+            context.insert(Self.makeValuableObjectEntity(from: o))
+            try context.save()
+        } catch { print("WealthManager valuable object cache upsert failed: \(error)") }
+    }
+    private func deleteValuableObjectCache(id: UUID) {
+        let context = ModelContext(container)
+        do {
+            try context.fetch(FetchDescriptor<ValuableObjectEntity>(predicate: #Predicate { $0.id == id })).forEach { context.delete($0) }
+            try context.save()
+        } catch {}
+    }
+
     // MARK: - Bridges
 
     private static func makeAsset(from e: AssetEntity) -> Asset {
@@ -372,6 +445,18 @@ final class WealthManager: ObservableObject {
         LiabilityEntity(id: l.id, name: l.name, notes: l.notes,
                         monthlyEstimatesData: SwiftDataBridge.encode(l.monthlyEstimates),
                         createdAt: l.createdAt, updatedAt: l.updatedAt)
+    }
+    private static func makeValuableObject(from e: ValuableObjectEntity) -> ValuableObject {
+        ValuableObject(id: e.id, name: e.name, notes: e.notes,
+                       estimatedValue: e.estimatedValue, currency: Currency(rawValue: e.currencyRaw) ?? .usd,
+                       forSale: e.forSale, imageData: e.imageData,
+                       createdAt: e.createdAt, updatedAt: e.updatedAt)
+    }
+    private static func makeValuableObjectEntity(from o: ValuableObject) -> ValuableObjectEntity {
+        ValuableObjectEntity(id: o.id, name: o.name, notes: o.notes,
+                             estimatedValue: o.estimatedValue, currencyRaw: o.currency.rawValue,
+                             forSale: o.forSale, imageData: o.imageData,
+                             createdAt: o.createdAt, updatedAt: o.updatedAt)
     }
 }
 

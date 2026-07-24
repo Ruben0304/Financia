@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct TransferView: View {
+    /// When true, the form opens pre-selecting two wallets of different
+    /// currencies, so it lands directly as a "Cambio de divisa".
+    var startInExchangeMode: Bool = false
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var transactionManager: TransactionManager
@@ -71,18 +75,18 @@ struct TransferView: View {
                     TextField("Opcional", text: $noteText)
                 }
             }
-            .navigationTitle("Transferir")
+            .navigationTitle(screenTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .title) {
-                    Text("Transferir")
+                    Text(screenTitle)
                         .darkFinanceToolbarTitle(size: 22)
                         .foregroundColor(DarkFinanceColors.primaryText)
                 }
 
                 ToolbarItem(placement: .subtitle) {
-                    Text("Mueve saldo entre carteras y ajusta la tasa si hace falta")
+                    Text(screenSubtitle)
                         .darkFinanceToolbarSubtitle(size: 12, weight: .medium)
                         .foregroundColor(DarkFinanceColors.secondaryText)
                 }
@@ -201,6 +205,17 @@ struct TransferView: View {
         fromCurrency != toCurrency
     }
 
+    /// A cross-currency move is, natively, a currency exchange.
+    private var isExchange: Bool { shouldShowRate }
+
+    private var screenTitle: String { isExchange ? "Cambio de divisa" : "Transferir" }
+
+    private var screenSubtitle: String {
+        isExchange
+            ? "Convierte entre monedas aplicando la tasa"
+            : "Mueve saldo entre carteras"
+    }
+
     private var canTransfer: Bool {
         guard walletManager.wallets.count >= 2 else { return false }
         guard fromWalletId != nil, toWalletId != nil else { return false }
@@ -233,8 +248,15 @@ struct TransferView: View {
             fromWalletId = walletManager.wallets.first?.id
         }
         if toWalletId == nil {
-            let fallback = walletManager.wallets.first { $0.id != fromWalletId }
-            toWalletId = fallback?.id
+            if startInExchangeMode, let from = fromWalletId,
+               let fromCur = walletManager.wallet(withId: from)?.currency {
+                let differentCurrency = walletManager.wallets.first { $0.id != from && $0.currency != fromCur }
+                let anyOther = walletManager.wallets.first { $0.id != from }
+                toWalletId = (differentCurrency ?? anyOther)?.id
+            } else {
+                let fallback = walletManager.wallets.first { $0.id != fromWalletId }
+                toWalletId = fallback?.id
+            }
         }
     }
 
@@ -299,22 +321,32 @@ struct TransferView: View {
             return
         }
 
-        let rate = shouldShowRate ? parseAmount(rateText) : 1
+        let isExchange = fromWallet.currency != toWallet.currency
+        let rate = isExchange ? parseAmount(rateText) : 1
         guard rate > 0 else {
             showError("Ingresa una tasa válida.")
             return
         }
 
-        let amountTo = shouldShowRate ? amountFrom * rate : amountFrom
+        let amountTo = isExchange ? amountFrom * rate : amountFrom
         let note = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rateNote = shouldShowRate ? " (1 \(fromWallet.currency.rawValue) = \(formattedRate(rate)) \(toWallet.currency.rawValue))" : ""
-        let outgoingDescription = "Transferencia a \(toWallet.name)\(rateNote)" + (note.isEmpty ? "" : " - \(note)")
-        let incomingDescription = "Transferencia desde \(fromWallet.name)\(rateNote)" + (note.isEmpty ? "" : " - \(note)")
+        let rateNote = isExchange ? " (1 \(fromWallet.currency.rawValue) = \(formattedRate(rate)) \(toWallet.currency.rawValue))" : ""
+        let verb = isExchange ? "Cambio de divisa" : "Transferencia"
+        let outgoingDescription = "\(verb) a \(toWallet.name)\(rateNote)" + (note.isEmpty ? "" : " - \(note)")
+        let incomingDescription = "\(verb) desde \(fromWallet.name)\(rateNote)" + (note.isEmpty ? "" : " - \(note)")
 
-        let (expenseCategory, expenseSub) = ensureTransferCategory(isIncome: false)
-        let (incomeCategory, incomeSub) = ensureTransferCategory(isIncome: true)
+        let (expenseCategory, expenseSub) = ensureTransferCategory(isIncome: false, isExchange: isExchange)
+        let (incomeCategory, incomeSub) = ensureTransferCategory(isIncome: true, isExchange: isExchange)
 
         let now = Date()
+        let cambio = isExchange ? CambioDivisa(
+            tasa: rate,
+            monedaOrigen: fromWallet.currency.rawValue,
+            monedaDestino: toWallet.currency.rawValue,
+            montoOrigen: amountFrom,
+            montoDestino: amountTo
+        ) : nil
+
         let outgoing = Transaction(
             type: .expense,
             amount: amountFrom,
@@ -324,7 +356,8 @@ struct TransferView: View {
             subcategoryId: expenseSub.id,
             subcategoryName: expenseSub.name,
             description: outgoingDescription,
-            walletId: fromWalletId
+            walletId: fromWalletId,
+            cambio: cambio
         )
 
         let incoming = Transaction(
@@ -336,7 +369,8 @@ struct TransferView: View {
             subcategoryId: incomeSub.id,
             subcategoryName: incomeSub.name,
             description: incomingDescription,
-            walletId: toWalletId
+            walletId: toWalletId,
+            cambio: cambio
         )
 
         transactionManager.addTransaction(outgoing)
@@ -344,8 +378,8 @@ struct TransferView: View {
         dismiss()
     }
 
-    private func ensureTransferCategory(isIncome: Bool) -> (TransactionCategory, Subcategory) {
-        let categoryName = "Transferencias"
+    private func ensureTransferCategory(isIncome: Bool, isExchange: Bool) -> (TransactionCategory, Subcategory) {
+        let categoryName = isExchange ? "Cambio de divisa" : "Transferencias"
         let subName = isIncome ? "Entrada" : "Salida"
         let categories = isIncome ? categoryManager.incomeCategories : categoryManager.expenseCategories
 
@@ -363,8 +397,8 @@ struct TransferView: View {
         let newCategory = TransactionCategory(
             name: categoryName,
             subcategories: [newSub],
-            icon: "arrow.left.arrow.right.circle.fill",
-            color: .blue
+            icon: isExchange ? "dollarsign.arrow.circlepath" : "arrow.left.arrow.right.circle.fill",
+            color: isExchange ? .green : .blue
         )
 
         if isIncome {

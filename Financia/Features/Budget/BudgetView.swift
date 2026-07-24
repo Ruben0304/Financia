@@ -8,6 +8,7 @@ struct BudgetView: View {
     @State private var editingCategory: BudgetCategory?
     @State private var showingGlobalAllocation = false
     @State private var quickAdjust: QuickAdjustContext?
+    @State private var categoryToDelete: BudgetCategory?
 
     struct QuickAdjustContext: Identifiable {
         let id = UUID()
@@ -18,7 +19,6 @@ struct BudgetView: View {
 
     // MARK: - Computed
 
-    // FIX: use calculateBalance, not wallet.balance directly
     private var totalByCurrency: [Currency: Double] {
         var totals: [Currency: Double] = [:]
         for wallet in walletManager.wallets {
@@ -59,12 +59,12 @@ struct BudgetView: View {
             DarkFinanceBackground()
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 16) {
-                    compactSummaryBar
+                VStack(spacing: 20) {
+                    summaryCard
                     categoriesSection
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 12)
+                .padding(.top, 8)
                 .padding(.bottom, 100)
             }
             .refreshable { await budgetManager.refreshFromBackend() }
@@ -79,7 +79,7 @@ struct BudgetView: View {
                     .foregroundColor(DarkFinanceColors.primaryText)
             }
             ToolbarItem(placement: .subtitle) {
-                Text("\(budgetManager.categories.count) categorías")
+                Text(categoryCountLabel)
                     .font(DarkFinanceTypography.toolbarSubtitle())
                     .foregroundColor(DarkFinanceColors.secondaryText)
             }
@@ -88,21 +88,24 @@ struct BudgetView: View {
                     showingGlobalAllocation = true
                 } label: {
                     Image(systemName: "percent")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(DarkFinanceColors.primaryAccent)
                         .frame(width: 32, height: 32)
                         .background(DarkFinanceColors.primaryAccent.opacity(0.12), in: Circle())
                 }
+                .accessibilityLabel("Asignar por porcentaje")
+
                 Button {
                     showingAddCategory = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(DarkFinanceColors.primaryText)
                         .frame(width: 32, height: 32)
                         .background(DarkFinanceColors.cardBackground, in: Circle())
                         .overlay(Circle().stroke(DarkFinanceColors.cardBorder, lineWidth: 1))
                 }
+                .accessibilityLabel("Nueva categoría")
             }
         }
         .sheet(isPresented: $showingAddCategory) {
@@ -121,6 +124,27 @@ struct BudgetView: View {
                 applyDelta(to: ctx.category, currency: ctx.currency, delta: delta)
             }
         }
+        .confirmationDialog(
+            "¿Eliminar categoría?",
+            isPresented: Binding(
+                get: { categoryToDelete != nil },
+                set: { if !$0 { categoryToDelete = nil } }
+            ),
+            presenting: categoryToDelete
+        ) { cat in
+            Button("Eliminar \"\(cat.nombre)\"", role: .destructive) {
+                budgetManager.deleteCategory(cat)
+                categoryToDelete = nil
+            }
+            Button("Cancelar", role: .cancel) { categoryToDelete = nil }
+        } message: { _ in
+            Text("Esta acción no se puede deshacer.")
+        }
+    }
+
+    private var categoryCountLabel: String {
+        let n = budgetManager.categories.count
+        return n == 1 ? "1 categoría" : "\(n) categorías"
     }
 
     private func applyDelta(to category: BudgetCategory, currency: Currency, delta: Double) {
@@ -131,16 +155,24 @@ struct BudgetView: View {
         budgetManager.updateCategory(cat)
     }
 
-    // MARK: - Compact summary bar
+    // MARK: - Summary card
 
-    private var compactSummaryBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Sin asignar")
-                    .font(DarkFinanceTypography.caption(weight: .semibold))
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-                    .textCase(.uppercase)
-                    .kerning(0.5)
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Disponible para asignar")
+                        .font(DarkFinanceTypography.caption(weight: .semibold))
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                        .textCase(.uppercase)
+                        .kerning(0.5)
+                    if activeCurrencies.isEmpty {
+                        Text("Aún no hay saldos en carteras")
+                            .font(DarkFinanceTypography.body())
+                            .foregroundColor(DarkFinanceColors.tertiaryText)
+                            .padding(.top, 2)
+                    }
+                }
                 Spacer()
                 Button {
                     showingGlobalAllocation = true
@@ -148,75 +180,74 @@ struct BudgetView: View {
                     Label("Asignar %", systemImage: "percent")
                         .font(DarkFinanceTypography.caption(weight: .semibold))
                         .foregroundColor(DarkFinanceColors.primaryAccent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(DarkFinanceColors.primaryAccent.opacity(0.12), in: Capsule())
                 }
+                .buttonStyle(.plain)
             }
 
-            if activeCurrencies.isEmpty {
-                Text("Sin saldos en carteras")
-                    .font(DarkFinanceTypography.body())
-                    .foregroundColor(DarkFinanceColors.secondaryText)
-            } else {
-                HStack(spacing: 8) {
+            if !activeCurrencies.isEmpty {
+                VStack(spacing: 8) {
                     ForEach(activeCurrencies, id: \.self) { currency in
-                        disponiblePill(currency)
+                        summaryRow(currency)
                     }
-                    Spacer()
                 }
             }
         }
-        .padding(14)
-        .background(DarkFinanceColors.cardBackground, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(DarkFinanceColors.cardBorder, lineWidth: 1))
+        .padding(16)
+        .background(DarkFinanceColors.cardBackground, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(DarkFinanceColors.cardBorder, lineWidth: 1))
     }
 
-    private func disponiblePill(_ currency: Currency) -> some View {
+    private func summaryRow(_ currency: Currency) -> some View {
         let disponible = disponibleByCurrency[currency] ?? 0
+        let total = totalByCurrency[currency] ?? 0
+        let allocated = allocatedByCurrency[currency] ?? 0
         let isNeg = disponible < 0
         let color: Color = isNeg ? DarkFinanceColors.errorRed : DarkFinanceColors.successGreen
 
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 3) {
-                Text(currency.rawValue.uppercased())
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(color.opacity(0.8))
-                    .kerning(0.4)
-                if isNeg {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 8))
-                        .foregroundColor(color)
-                }
+        return HStack(spacing: 12) {
+            currencyBadge(currency)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(formatAmount(disponible, currency: currency))
+                    .font(DarkFinanceTypography.monoAmount(size: 17, weight: .semibold))
+                    .foregroundColor(color)
+                Text("\(formatAmount(allocated, currency: currency)) de \(formatAmount(total, currency: currency))")
+                    .font(DarkFinanceTypography.caption())
+                    .foregroundColor(DarkFinanceColors.tertiaryText)
             }
-            Text(formatAmount(disponible, currency: currency))
-                .font(DarkFinanceTypography.monoAmount(size: 15, weight: .semibold))
-                .foregroundColor(color)
+
+            Spacer()
+
+            if isNeg {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(color)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.18), lineWidth: 1))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(DarkFinanceColors.inputBackground, in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - Categories section
 
     private var categoriesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Categorías")
-                    .font(DarkFinanceTypography.sectionTitle())
-                    .foregroundColor(DarkFinanceColors.primaryText)
-                Spacer()
-                Button { showingAddCategory = true } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(DarkFinanceColors.primaryAccent)
-                }
-            }
+            Text("Categorías")
+                .font(DarkFinanceTypography.sectionTitle())
+                .foregroundColor(DarkFinanceColors.primaryText)
+                .padding(.leading, 4)
 
             if budgetManager.categories.isEmpty {
                 emptyState
             } else {
-                ForEach(budgetManager.categories) { cat in
-                    categoryCard(cat)
+                VStack(spacing: 12) {
+                    ForEach(budgetManager.categories) { cat in
+                        categoryCard(cat)
+                    }
                 }
             }
         }
@@ -224,31 +255,35 @@ struct BudgetView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "square.grid.2x2.fill")
-                .font(.system(size: 34))
-                .foregroundColor(DarkFinanceColors.secondaryText.opacity(0.35))
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 36, weight: .regular))
+                .foregroundColor(DarkFinanceColors.secondaryText.opacity(0.4))
 
-            VStack(spacing: 5) {
-                Text("Sin categorías aún")
+            VStack(spacing: 6) {
+                Text("Sin categorías")
                     .font(DarkFinanceTypography.sectionTitle())
                     .foregroundColor(DarkFinanceColors.primaryText)
-                Text("Crea categorías y asigna a cuánto\nirá destinado tu dinero")
+                Text("Crea categorías para organizar a dónde\ndestinas tu dinero.")
                     .font(DarkFinanceTypography.body())
                     .foregroundColor(DarkFinanceColors.secondaryText)
                     .multilineTextAlignment(.center)
             }
 
-            Button { showingAddCategory = true } label: {
+            Button {
+                showingAddCategory = true
+            } label: {
                 Label("Crear categoría", systemImage: "plus")
                     .font(DarkFinanceTypography.action(weight: .semibold))
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 18)
                     .padding(.vertical, 10)
-                    .foregroundColor(DarkFinanceColors.primaryAccent)
-                    .background(DarkFinanceColors.primaryAccent.opacity(0.12), in: Capsule())
+                    .foregroundColor(.white)
+                    .background(DarkFinanceColors.primaryAccent, in: Capsule())
             }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 36)
+        .padding(.vertical, 40)
         .background(DarkFinanceColors.cardBackground, in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(DarkFinanceColors.cardBorder, lineWidth: 1))
     }
@@ -257,21 +292,23 @@ struct BudgetView: View {
         let activeCurrenciesForCat = Currency.allCases.filter { category.asignaciones.amount(for: $0) > 0 }
         let inactiveCurrencies = Currency.allCases.filter { category.asignaciones.amount(for: $0) == 0 }
 
-        return VStack(alignment: .leading, spacing: 10) {
-            // Header row
-            HStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(DarkFinanceColors.primaryAccent.opacity(0.12))
-                        .frame(width: 36, height: 36)
+                        .fill(DarkFinanceColors.primaryAccent.opacity(0.14))
+                        .frame(width: 40, height: 40)
                     Text(String(category.nombre.prefix(1)).uppercased())
-                        .font(DarkFinanceTypography.sectionTitle(size: 15))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(DarkFinanceColors.primaryAccent)
                 }
-                VStack(alignment: .leading, spacing: 1) {
+
+                VStack(alignment: .leading, spacing: 2) {
                     Text(category.nombre)
-                        .font(DarkFinanceTypography.emphasis())
+                        .font(DarkFinanceTypography.emphasis(size: 15))
                         .foregroundColor(DarkFinanceColors.primaryText)
+                        .lineLimit(1)
                     if let d = category.descripcion, !d.isEmpty {
                         Text(d)
                             .font(DarkFinanceTypography.caption())
@@ -279,56 +316,83 @@ struct BudgetView: View {
                             .lineLimit(1)
                     }
                 }
+
                 Spacer()
-                Button { editingCategory = category } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DarkFinanceColors.tertiaryText)
-                        .frame(width: 28, height: 28)
+
+                Menu {
+                    Button {
+                        editingCategory = category
+                    } label: {
+                        Label("Editar", systemImage: "pencil")
+                    }
+                    if !inactiveCurrencies.isEmpty {
+                        Menu("Añadir moneda") {
+                            ForEach(inactiveCurrencies, id: \.self) { currency in
+                                Button {
+                                    quickAdjust = QuickAdjustContext(category: category, currency: currency, adding: true)
+                                } label: {
+                                    Label(currency.rawValue.uppercased(), systemImage: "plus")
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        categoryToDelete = category
+                    } label: {
+                        Label("Eliminar", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(DarkFinanceColors.secondaryText)
+                        .frame(width: 32, height: 32)
                         .background(DarkFinanceColors.inputBackground, in: Circle())
                 }
+                .accessibilityLabel("Opciones de \(category.nombre)")
             }
 
-            // Currency rows with +/-
+            // Currency rows
             if activeCurrenciesForCat.isEmpty {
-                Text("Sin monto asignado")
-                    .font(DarkFinanceTypography.caption())
-                    .foregroundColor(DarkFinanceColors.tertiaryText)
-                    .padding(.leading, 46)
+                Button {
+                    if let first = inactiveCurrencies.first {
+                        quickAdjust = QuickAdjustContext(category: category, currency: first, adding: true)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 16))
+                        Text("Asignar monto")
+                            .font(DarkFinanceTypography.action(weight: .semibold))
+                        Spacer()
+                    }
+                    .foregroundColor(DarkFinanceColors.primaryAccent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(DarkFinanceColors.primaryAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
             } else {
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     ForEach(activeCurrenciesForCat, id: \.self) { currency in
                         currencyAdjustRow(category: category, currency: currency)
                     }
                 }
             }
-
-            // Add-currency pills for currencies not yet assigned
-            if !inactiveCurrencies.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(inactiveCurrencies, id: \.self) { currency in
-                        Button {
-                            quickAdjust = QuickAdjustContext(category: category, currency: currency, adding: true)
-                        } label: {
-                            Label("+ \(currency.rawValue.uppercased())", systemImage: "plus")
-                                .font(.system(size: 10, weight: .semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .foregroundColor(currencyColor(currency).opacity(0.7))
-                                .background(currencyColor(currency).opacity(0.08), in: Capsule())
-                                .overlay(Capsule().stroke(currencyColor(currency).opacity(0.15), lineWidth: 1))
-                        }
-                    }
-                    Spacer()
-                }
-                .padding(.leading, 46)
-            }
         }
         .padding(14)
         .background(DarkFinanceColors.cardBackground, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(DarkFinanceColors.cardBorder, lineWidth: 1))
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) { budgetManager.deleteCategory(category) } label: {
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .contextMenu {
+            Button {
+                editingCategory = category
+            } label: {
+                Label("Editar", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                categoryToDelete = category
+            } label: {
                 Label("Eliminar", systemImage: "trash")
             }
         }
@@ -337,14 +401,8 @@ struct BudgetView: View {
     private func currencyAdjustRow(category: BudgetCategory, currency: Currency) -> some View {
         let amount = category.asignaciones.amount(for: currency)
 
-        return HStack(spacing: 10) {
-            Text(currency.rawValue.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(currencyColor(currency))
-                .frame(width: 28, alignment: .leading)
-                .padding(.leading, 46)
-
-            Spacer()
+        return HStack(spacing: 12) {
+            currencyBadge(currency)
 
             Text(formatAmount(amount, currency: currency))
                 .font(DarkFinanceTypography.monoAmount(size: 15, weight: .semibold))
@@ -352,33 +410,48 @@ struct BudgetView: View {
 
             Spacer()
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Button {
                     quickAdjust = QuickAdjustContext(category: category, currency: currency, adding: false)
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundColor(DarkFinanceColors.errorRed)
                         .frame(width: 30, height: 30)
-                        .background(DarkFinanceColors.errorRed.opacity(0.1), in: Circle())
+                        .background(DarkFinanceColors.errorRed.opacity(0.12), in: Circle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Quitar \(currency.rawValue.uppercased())")
+
                 Button {
                     quickAdjust = QuickAdjustContext(category: category, currency: currency, adding: true)
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundColor(DarkFinanceColors.successGreen)
                         .frame(width: 30, height: 30)
-                        .background(DarkFinanceColors.successGreen.opacity(0.1), in: Circle())
+                        .background(DarkFinanceColors.successGreen.opacity(0.12), in: Circle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Agregar \(currency.rawValue.uppercased())")
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(DarkFinanceColors.inputBackground, in: RoundedRectangle(cornerRadius: 9))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(DarkFinanceColors.inputBackground, in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - Helpers
+
+    private func currencyBadge(_ currency: Currency) -> some View {
+        Text(currency.rawValue.uppercased())
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundColor(currencyColor(currency))
+            .kerning(0.4)
+            .frame(width: 38, height: 22)
+            .background(currencyColor(currency).opacity(0.12), in: Capsule())
+            .overlay(Capsule().stroke(currencyColor(currency).opacity(0.20), lineWidth: 1))
+    }
 
     func formatAmount(_ amount: Double, currency: Currency) -> String {
         let symbol: String
@@ -425,62 +498,96 @@ struct QuickAdjustSheet: View {
         Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
     }
 
+    private var quickAmounts: [Double] {
+        switch ctx.currency {
+        case .usd, .eur: return [10, 50, 100, 500]
+        case .cup: return [500, 1000, 5000, 10000]
+        }
+    }
+
+    private var accentColor: Color {
+        ctx.adding ? DarkFinanceColors.successGreen : DarkFinanceColors.errorRed
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                // Current
+            VStack(spacing: 20) {
+                // Current value
                 VStack(spacing: 4) {
                     Text("Actual en \(ctx.currency.rawValue.uppercased())")
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundColor(.secondary)
-                    Text(formatCurrent())
-                        .font(.title2.monospacedDigit())
-                        .fontWeight(.semibold)
+                        .textCase(.uppercase)
+                        .kerning(0.4)
+                    Text(formatAmt(ctx.category.asignaciones.amount(for: ctx.currency)))
+                        .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.primary)
                 }
-                .padding(.top, 8)
+                .padding(.top, 4)
 
-                // Amount field
-                VStack(spacing: 8) {
-                    Text(ctx.adding ? "¿Cuánto agregas?" : "¿Cuánto quitas?")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-
+                // Input
+                VStack(spacing: 10) {
                     HStack(spacing: 6) {
+                        Text(ctx.adding ? "+" : "−")
+                            .font(.system(size: 28, weight: .semibold, design: .rounded))
+                            .foregroundColor(accentColor)
                         Text(symbol)
-                            .font(.title2)
+                            .font(.system(size: 24, weight: .regular))
                             .foregroundColor(.secondary)
-                        TextField("0.00", text: $amountText)
+                        TextField("0", text: $amountText)
                             .keyboardType(.decimalPad)
-                            .font(.system(size: 32, weight: .semibold, design: .monospaced))
-                            .multilineTextAlignment(.center)
+                            .font(.system(size: 34, weight: .semibold, design: .monospaced))
+                            .multilineTextAlignment(.leading)
                             .focused($focused)
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                     .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14))
-                    .padding(.horizontal, 32)
+
+                    // Quick amounts
+                    HStack(spacing: 8) {
+                        ForEach(quickAmounts, id: \.self) { v in
+                            Button {
+                                amountText = String(format: v >= 1000 ? "%.0f" : "%.0f", v)
+                            } label: {
+                                Text(formatAmt(v))
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Color(.tertiarySystemBackground), in: Capsule())
+                                    .overlay(Capsule().stroke(Color(.separator), lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
 
                 // Preview
                 if parsedAmount > 0 {
                     let current = ctx.category.asignaciones.amount(for: ctx.currency)
                     let next = ctx.adding ? current + parsedAmount : max(0, current - parsedAmount)
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         Text(formatAmt(current))
-                            .strikethrough()
                             .foregroundColor(.secondary)
                         Image(systemName: "arrow.right")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Text(formatAmt(next))
                             .fontWeight(.semibold)
-                            .foregroundColor(ctx.adding ? DarkFinanceColors.successGreen : DarkFinanceColors.errorRed)
+                            .foregroundColor(accentColor)
                     }
                     .font(.subheadline.monospacedDigit())
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(accentColor.opacity(0.10), in: Capsule())
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
             }
+            .padding(.bottom, 8)
             .navigationTitle(ctx.adding ? "Agregar a \(ctx.category.nombre)" : "Quitar de \(ctx.category.nombre)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -499,12 +606,9 @@ struct QuickAdjustSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(340)])
+        .presentationDetents([.height(380)])
+        .presentationDragIndicator(.visible)
         .onAppear { focused = true }
-    }
-
-    private func formatCurrent() -> String {
-        formatAmt(ctx.category.asignaciones.amount(for: ctx.currency))
     }
 
     private func formatAmt(_ v: Double) -> String {

@@ -92,6 +92,7 @@ final class TransactionEntity {
     var createdAt: Date = Date()
     var lugarData: Data?
     var subitemsData: Data?
+    var cambioData: Data?
     var assetId: UUID?
     var jobId: UUID?
     var liabilityId: UUID?
@@ -112,7 +113,8 @@ final class TransactionEntity {
         subitemsData: Data?,
         assetId: UUID?,
         jobId: UUID?,
-        liabilityId: UUID?
+        liabilityId: UUID?,
+        cambioData: Data? = nil
     ) {
         self.id = id
         self.typeRaw = typeRaw
@@ -127,6 +129,7 @@ final class TransactionEntity {
         self.createdAt = createdAt
         self.lugarData = lugarData
         self.subitemsData = subitemsData
+        self.cambioData = cambioData
         self.assetId = assetId
         self.jobId = jobId
         self.liabilityId = liabilityId
@@ -373,6 +376,31 @@ final class LiabilityEntity {
         self.name = name
         self.notes = notes
         self.monthlyEstimatesData = monthlyEstimatesData
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
+final class ValuableObjectEntity {
+    var id: UUID = UUID()
+    var name: String = ""
+    var notes: String = ""
+    var estimatedValue: Double = 0
+    var currencyRaw: String = ""
+    var forSale: Bool = false
+    var imageData: Data?
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    init(id: UUID, name: String, notes: String, estimatedValue: Double, currencyRaw: String, forSale: Bool, imageData: Data?, createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.name = name
+        self.notes = notes
+        self.estimatedValue = estimatedValue
+        self.currencyRaw = currencyRaw
+        self.forSale = forSale
+        self.imageData = imageData
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -634,6 +662,7 @@ final class PersistenceManager {
             AssetEntity.self,
             JobEntity.self,
             LiabilityEntity.self,
+            ValuableObjectEntity.self,
             PrestamoEntity.self,
             ExchangeRateCacheEntity.self,
             ManualUsdRateEntity.self,

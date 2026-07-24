@@ -40,6 +40,29 @@ struct SubItem: Identifiable, Codable, Hashable {
     }
 }
 
+// Datos de un cambio de divisa: a qué tasa se hizo, para estadística posterior.
+struct CambioDivisa: Codable, Hashable {
+    var tasa: Double            // 1 monedaOrigen = tasa monedaDestino
+    var monedaOrigen: String
+    var monedaDestino: String
+    var montoOrigen: Double
+    var montoDestino: Double
+
+    init(
+        tasa: Double,
+        monedaOrigen: String,
+        monedaDestino: String,
+        montoOrigen: Double,
+        montoDestino: Double
+    ) {
+        self.tasa = tasa
+        self.monedaOrigen = monedaOrigen
+        self.monedaDestino = monedaDestino
+        self.montoOrigen = montoOrigen
+        self.montoDestino = montoDestino
+    }
+}
+
 // Modelo principal para transacciones persistentes
 struct Transaction: Identifiable, Codable, Hashable {
     var id: UUID
@@ -58,6 +81,7 @@ struct Transaction: Identifiable, Codable, Hashable {
     var assetId: UUID?
     var jobId: UUID?
     var liabilityId: UUID?
+    var cambio: CambioDivisa?
 
     init(
         id: UUID = UUID(),
@@ -75,7 +99,8 @@ struct Transaction: Identifiable, Codable, Hashable {
         subitems: [SubItem]? = nil,
         assetId: UUID? = nil,
         jobId: UUID? = nil,
-        liabilityId: UUID? = nil
+        liabilityId: UUID? = nil,
+        cambio: CambioDivisa? = nil
     ) {
         self.id = id
         self.type = type
@@ -93,6 +118,7 @@ struct Transaction: Identifiable, Codable, Hashable {
         self.assetId = assetId
         self.jobId = jobId
         self.liabilityId = liabilityId
+        self.cambio = cambio
     }
 }
 

@@ -7,6 +7,7 @@ struct ProfileView: View {
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var exchangeRateManager: ExchangeRateManager
     @EnvironmentObject private var cloudKitStatusManager: CloudKitStatusManager
+    @EnvironmentObject private var appLockManager: AppLockManager
     @State private var nombre: String = ""
     @State private var situacion: String = ""
     @State private var estrategia: String = ""
@@ -49,6 +50,10 @@ struct ProfileView: View {
                 NavigationLink(destination: SavingsGoalsView()) {
                     Label("Ahorros", systemImage: "star.circle.fill")
                 }
+
+                NavigationLink(destination: ValuableObjectsView()) {
+                    Label("Objetos de valor", systemImage: "shippingbox.fill")
+                }
             }
 
             Section("Situación financiera") {
@@ -75,6 +80,25 @@ struct ProfileView: View {
                 Text("Los borradores automáticos usarán esta cartera por defecto. La moneda saldrá de esa cartera.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            Section {
+                if appLockManager.canAuthenticate {
+                    Toggle(isOn: appLockBinding) {
+                        Label("Bloqueo con \(appLockManager.methodName)", systemImage: appLockManager.methodIcon)
+                    }
+                    Text("Pide \(appLockManager.methodName) para abrir FinancIA cada vez que vuelvas a la app.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Label("Bloqueo no disponible", systemImage: "lock.slash")
+                        .foregroundColor(.secondary)
+                    Text("Configura un código o Face ID / Touch ID en Ajustes del sistema para poder bloquear la app.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } header: {
+                Text("Seguridad")
             }
 
             Section("Cambio USD (informal)") {
@@ -237,6 +261,12 @@ struct ProfileView: View {
                 ColorPicker("Acento", selection: $accentColor, supportsOpacity: false)
             }
 
+            Section("Legal") {
+                NavigationLink(destination: PrivacyPolicyView()) {
+                    Label("Política de privacidad", systemImage: "hand.raised.fill")
+                }
+            }
+
             Section {
                 Button {
                     authManager.signOut()
@@ -367,6 +397,21 @@ struct ProfileView: View {
 
         let manualRate = parseRate(usdToCupText)
         exchangeRateManager.updateManualUsdToCupRate(manualRate)
+    }
+
+    /// Drives the app-lock toggle. Enabling requires a successful auth; if the
+    /// user cancels, `isEnabled` stays false and the toggle snaps back on its own.
+    private var appLockBinding: Binding<Bool> {
+        Binding(
+            get: { appLockManager.isEnabled },
+            set: { newValue in
+                if newValue {
+                    Task { await appLockManager.enable() }
+                } else {
+                    appLockManager.disable()
+                }
+            }
+        )
     }
 
     private func parseRate(_ text: String) -> Double? {

@@ -113,3 +113,37 @@ struct Liability: Identifiable, Codable, Hashable {
         self.updatedAt = updatedAt
     }
 }
+
+struct ValuableObject: Identifiable, Codable, Hashable {
+    var id: UUID
+    var name: String
+    var notes: String
+    var estimatedValue: Double
+    var currency: Currency
+    var forSale: Bool
+    var imageData: Data?
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        notes: String = "",
+        estimatedValue: Double,
+        currency: Currency,
+        forSale: Bool = false,
+        imageData: Data? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.notes = notes
+        self.estimatedValue = estimatedValue
+        self.currency = currency
+        self.forSale = forSale
+        self.imageData = imageData
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}

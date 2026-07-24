@@ -426,7 +426,7 @@ private func orderedItemText(_ line: String) -> String {
 
 // MARK: - MessageBubbleShape (iMessage tail)
 
-struct MessageBubbleShape: Shape {
+nonisolated struct MessageBubbleShape: Shape {
     let isFromCurrentUser: Bool
 
     func path(in rect: CGRect) -> Path {

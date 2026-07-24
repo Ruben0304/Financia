@@ -73,7 +73,7 @@ struct BalanceView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if #available(iOS 26.0, *) {
+            if #available(iOS 27.0, *) {
                 ToolbarItem(placement: .principal) {
                     balanceToolbarHeader
                 }
@@ -84,7 +84,7 @@ struct BalanceView: View {
                 }
             }
 
-            if #available(iOS 26.0, *) {
+            if #available(iOS 27.0, *) {
                 ToolbarSpacer(.flexible)
 
                 ToolbarItem(placement: .topBarTrailing) {
